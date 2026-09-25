@@ -1,5 +1,7 @@
 import { AllPlayersStats, ClientID, Winner } from "../Schemas";
 import {
+  DiplomaticIncident,
+  DiplomaticProposal,
   EmojiMessage,
   GameUpdates,
   Gold,
@@ -367,6 +369,9 @@ export interface PlayerUpdate {
     deadlineAt: Tick;
     status: "pending" | "complied" | "refused" | "cancelled";
   }[];
+  /** Proposals visible to this player, including recent terminal states. */
+  diplomaticProposals?: DiplomaticProposal[];
+  diplomaticIncidents?: DiplomaticIncident[];
   casusBelli?: CasusBelliUpdate[];
   /** Diplomacy+ active war goals keyed by target PlayerID. */
   warGoals?: {

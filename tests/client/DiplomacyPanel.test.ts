@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DiplomacyPanel } from "../../src/client/hud/layers/DiplomacyPanel";
 import { GameView, PlayerView } from "../../src/client/view";
+import { PlayerType } from "../../src/core/game/Game";
 
 describe("EU4-style country menu", () => {
   it("navigates to diplomacy and updates treaty deadlines", async () => {
     let now = 100;
     const selected = {
       id: () => "a",
+      type: () => PlayerType.Human,
       isAlive: () => true,
       displayName: () => "Country A",
       gold: () => 1000n,
@@ -17,6 +19,8 @@ describe("EU4-style country menu", () => {
       diplomaticRelations: () => [],
       tradeContracts: () => [],
       diplomaticCrises: () => [],
+      diplomaticProposals: () => [],
+      diplomaticIncidents: () => [],
       stability: () => 70,
       publicSatisfaction: () => 65,
       taxPolicy: () => "normal",
@@ -35,6 +39,7 @@ describe("EU4-style country menu", () => {
         resourceAccess: "food",
         preferredPartners: [],
       }),
+      nationalAgenda: () => undefined,
       diplomaticMemories: () => [],
       nonAggressionPacts: () => [{ otherID: "b", expiresAt: 1300 }],
       outgoingAttacks: () => [],

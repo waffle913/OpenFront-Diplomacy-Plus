@@ -90,6 +90,14 @@ export function diffPlayerUpdate(
     ) &&
     tradeContractArrayEqual(prev.tradeContracts, next.tradeContracts) &&
     diplomaticCrisisArrayEqual(prev.diplomaticCrises, next.diplomaticCrises) &&
+    diplomaticProposalArrayEqual(
+      prev.diplomaticProposals,
+      next.diplomaticProposals,
+    ) &&
+    diplomaticIncidentArrayEqual(
+      prev.diplomaticIncidents,
+      next.diplomaticIncidents,
+    ) &&
     casusBelliArrayEqual(prev.casusBelli, next.casusBelli) &&
     warGoalArrayEqual(prev.warGoals, next.warGoals) &&
     napArrayEqual(prev.nonAggressionPacts, next.nonAggressionPacts) &&
@@ -235,6 +243,20 @@ export function diffPlayerUpdate(
   setIfDifferent(
     "diplomaticCrises",
     diplomaticCrisisArrayEqual(prev.diplomaticCrises, next.diplomaticCrises),
+  );
+  setIfDifferent(
+    "diplomaticProposals",
+    diplomaticProposalArrayEqual(
+      prev.diplomaticProposals,
+      next.diplomaticProposals,
+    ),
+  );
+  setIfDifferent(
+    "diplomaticIncidents",
+    diplomaticIncidentArrayEqual(
+      prev.diplomaticIncidents,
+      next.diplomaticIncidents,
+    ),
   );
   setIfDifferent(
     "casusBelli",
@@ -383,6 +405,18 @@ export function applyStateUpdate(target: PlayerState, pu: PlayerUpdate): void {
   }
   if (pu.diplomaticCrises !== undefined) {
     target.diplomaticCrises = pu.diplomaticCrises.slice();
+  }
+  if (pu.diplomaticProposals !== undefined) {
+    target.diplomaticProposals = pu.diplomaticProposals.map((proposal) => ({
+      ...proposal,
+      terms: proposal.terms.map((term) => ({ ...term })),
+      reasons: proposal.reasons.map((reason) => ({ ...reason })),
+    }));
+  }
+  if (pu.diplomaticIncidents !== undefined) {
+    target.diplomaticIncidents = pu.diplomaticIncidents.map((incident) => ({
+      ...incident,
+    }));
   }
   if (pu.casusBelli !== undefined) target.casusBelli = pu.casusBelli.slice();
   if (pu.warGoals !== undefined) target.warGoals = pu.warGoals.slice();
@@ -602,6 +636,80 @@ function diplomaticCrisisArrayEqual(
       x.responseAt !== y.responseAt ||
       x.deadlineAt !== y.deadlineAt ||
       x.status !== y.status
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function diplomaticProposalArrayEqual(
+  a?: NonNullable<PlayerUpdate["diplomaticProposals"]>,
+  b?: NonNullable<PlayerUpdate["diplomaticProposals"]>,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.rootProposalID !== y.rootProposalID ||
+      x.parentProposalID !== y.parentProposalID ||
+      x.revision !== y.revision ||
+      x.proposerID !== y.proposerID ||
+      x.recipientID !== y.recipientID ||
+      x.createdAt !== y.createdAt ||
+      x.responseAfter !== y.responseAfter ||
+      x.expiresAt !== y.expiresAt ||
+      x.status !== y.status ||
+      x.settledAt !== y.settledAt ||
+      x.terms.length !== y.terms.length ||
+      x.reasons.length !== y.reasons.length
+    ) {
+      return false;
+    }
+    for (let j = 0; j < x.terms.length; j++) {
+      if (JSON.stringify(x.terms[j]) !== JSON.stringify(y.terms[j]))
+        return false;
+    }
+    for (let j = 0; j < x.reasons.length; j++) {
+      const xr = x.reasons[j];
+      const yr = y.reasons[j];
+      if (
+        xr.code !== yr.code ||
+        xr.impact !== yr.impact ||
+        xr.detail !== yr.detail
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function diplomaticIncidentArrayEqual(
+  a?: NonNullable<PlayerUpdate["diplomaticIncidents"]>,
+  b?: NonNullable<PlayerUpdate["diplomaticIncidents"]>,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.type !== y.type ||
+      x.offenderID !== y.offenderID ||
+      x.victimID !== y.victimID ||
+      x.createdAt !== y.createdAt ||
+      x.severity !== y.severity ||
+      x.damages !== y.damages ||
+      x.evidence !== y.evidence ||
+      x.status !== y.status ||
+      x.demandedReparations !== y.demandedReparations ||
+      x.settlementAmount !== y.settlementAmount ||
+      x.sourceUnitID !== y.sourceUnitID
     ) {
       return false;
     }

@@ -9,6 +9,7 @@ import {
 import { EventBus, EventConstructor, GameEvent } from "../core/EventBus";
 import {
   AllPlayers,
+  DiplomaticTerm,
   GameType,
   Gold,
   PlayerID,
@@ -161,6 +162,27 @@ export class SendDiplomacyPlusIntentEvent implements GameEvent {
       | "demand_reparations"
       | "offer_concession"
       | "mediate_crisis",
+  ) {}
+}
+
+export class SendDiplomaticProposalIntentEvent implements GameEvent {
+  constructor(
+    public readonly action:
+      | "create"
+      | "accept"
+      | "reject"
+      | "withdraw"
+      | "counter",
+    public readonly target?: PlayerView,
+    public readonly proposalID?: string,
+    public readonly terms: DiplomaticTerm[] = [],
+  ) {}
+}
+
+export class SendDiplomaticIncidentIntentEvent implements GameEvent {
+  constructor(
+    public readonly action: "protest" | "dismiss",
+    public readonly incidentID: string,
   ) {}
 }
 
@@ -361,6 +383,12 @@ export class Transport {
     this.subscribe(SendEmbargoIntentEvent, (e) => this.onSendEmbargoIntent(e));
     this.subscribe(SendDiplomacyPlusIntentEvent, (e) =>
       this.onSendDiplomacyPlusIntent(e),
+    );
+    this.subscribe(SendDiplomaticProposalIntentEvent, (e) =>
+      this.onSendDiplomaticProposalIntent(e),
+    );
+    this.subscribe(SendDiplomaticIncidentIntentEvent, (e) =>
+      this.onSendDiplomaticIncidentIntent(e),
     );
     this.subscribe(SendTradeIntentEvent, (e) => this.onSendTradeIntent(e));
     this.subscribe(SendDomesticPolicyIntentEvent, (e) =>
@@ -878,6 +906,28 @@ export class Transport {
       type: "diplomacy_plus",
       targetID: event.target.id(),
       action: event.action,
+    });
+  }
+
+  private onSendDiplomaticProposalIntent(
+    event: SendDiplomaticProposalIntentEvent,
+  ) {
+    this.sendIntent({
+      type: "diplomatic_proposal",
+      action: event.action,
+      targetID: event.target?.id(),
+      proposalID: event.proposalID,
+      terms: event.terms,
+    });
+  }
+
+  private onSendDiplomaticIncidentIntent(
+    event: SendDiplomaticIncidentIntentEvent,
+  ) {
+    this.sendIntent({
+      type: "diplomatic_incident",
+      action: event.action,
+      incidentID: event.incidentID,
     });
   }
 

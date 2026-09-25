@@ -228,9 +228,15 @@ describe("negotiated peace and crisis exits", () => {
     );
     peace.init(game, game.ticks());
     peace.tick(game.ticks());
+    const proposal = game.diplomaticProposalsFor(actor.id())[0];
+    expect(proposal.status).toBe("pending");
+    expect(game.acceptDiplomaticProposal(target, proposal.id).accepted).toBe(
+      true,
+    );
+    game.executeNextTick();
     expect(actor.gold()).toBe(actorGold + 500n);
-    expect(actor.truceWith(target)).toBe(game.ticks() + 1800);
-    expect(target.truceWith(actor)).toBe(game.ticks() + 1800);
+    expect(actor.truceWith(target)).toBe(proposal.settledAt! + 1800);
+    expect(target.truceWith(actor)).toBe(proposal.settledAt! + 1800);
     expect(
       actor
         .diplomaticMemories()

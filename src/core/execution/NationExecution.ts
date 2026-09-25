@@ -1,3 +1,5 @@
+import { chooseDiplomaticInitiative } from "../game/DiplomaticInitiative";
+import { evaluateDiplomaticProposal } from "../game/DiplomaticProposalEvaluation";
 import {
   Difficulty,
   Execution,
@@ -175,6 +177,18 @@ export class NationExecution implements Execution {
       return;
     }
 
+    if (ticks % 10 === this.player.smallID() % 10) {
+      this.processDiplomaticProposals();
+    }
+
+    if (ticks % 120 === this.player.smallID() % 120) {
+      this.processDiplomaticIncidents();
+    }
+
+    if (ticks % 900 === this.player.smallID() % 900) {
+      this.maybeOpenDiplomaticNegotiation();
+    }
+
     if (ticks % 600 === this.player.smallID() % 600) {
       this.maybeProposeTrade();
     }
@@ -214,6 +228,78 @@ export class NationExecution implements Execution {
     this.attackBehavior.maybeAttack();
     this.warshipBehavior.counterWarshipInfestation();
     this.nukeBehavior.maybeSendNuke();
+  }
+
+  private processDiplomaticProposals(): void {
+    if (this.player === null || !isDiplomacyPlusParticipant(this.player))
+      return;
+    const proposal = this.mg
+      .diplomaticProposalsFor(this.player.id())
+      .find(
+        (candidate) =>
+          candidate.status === "pending" &&
+          candidate.recipientID === this.player!.id() &&
+          candidate.responseAfter <= this.mg.ticks(),
+      );
+    if (proposal === undefined) return;
+    const evaluation = evaluateDiplomaticProposal(
+      this.mg,
+      this.player,
+      proposal,
+    );
+    if (evaluation.decision === "accept") {
+      this.mg.acceptDiplomaticProposal(
+        this.player,
+        proposal.id,
+        evaluation.reasons,
+      );
+    } else if (
+      evaluation.decision === "counter" &&
+      evaluation.counterTerms !== undefined
+    ) {
+      this.mg.counterDiplomaticProposal(
+        this.player,
+        proposal.id,
+        evaluation.counterTerms,
+        evaluation.reasons,
+      );
+    } else {
+      this.mg.rejectDiplomaticProposal(
+        this.player,
+        proposal.id,
+        evaluation.reasons,
+      );
+    }
+  }
+
+  private processDiplomaticIncidents(): void {
+    if (this.player === null || !isDiplomacyPlusParticipant(this.player))
+      return;
+    const unresolved = this.mg
+      .diplomaticIncidentsFor(this.player.id())
+      .filter(
+        (incident) =>
+          incident.victimID === this.player!.id() &&
+          incident.status === "unresolved",
+      )
+      .sort((a, b) => b.severity - a.severity || a.createdAt - b.createdAt)[0];
+    if (unresolved !== undefined) {
+      this.mg.protestDiplomaticIncident(this.player, unresolved.id);
+    }
+  }
+
+  private maybeOpenDiplomaticNegotiation(): void {
+    if (this.player === null || !isDiplomacyPlusParticipant(this.player))
+      return;
+    const initiative = chooseDiplomaticInitiative(this.mg, this.player);
+    if (initiative === null || !this.mg.hasPlayer(initiative.targetID)) return;
+    this.mg.createDiplomaticProposal(
+      this.player,
+      this.mg.player(initiative.targetID),
+      initiative.terms,
+      undefined,
+      initiative.reasons,
+    );
   }
 
   private maybeProposeTrade(): void {

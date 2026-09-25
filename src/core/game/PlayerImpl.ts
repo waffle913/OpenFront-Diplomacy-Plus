@@ -281,6 +281,18 @@ export class PlayerImpl implements Player {
   private cachedWarGoals:
     | { epoch: number; value: NonNullable<PlayerUpdate["warGoals"]> }
     | undefined;
+  private cachedDiplomaticProposals:
+    | {
+        version: number;
+        value: NonNullable<PlayerUpdate["diplomaticProposals"]>;
+      }
+    | undefined;
+  private cachedDiplomaticIncidents:
+    | {
+        version: number;
+        value: NonNullable<PlayerUpdate["diplomaticIncidents"]>;
+      }
+    | undefined;
   private _governmentStyle: GovernmentStyle;
   private _governmentGeneration = 1;
   private _governmentTermEndsAt: Tick;
@@ -534,6 +546,21 @@ export class PlayerImpl implements Player {
         value: diplomaticRelations,
       };
     }
+    const proposalVersion = this.mg.diplomaticProposalVersion();
+    let diplomaticIncidents = this.cachedDiplomaticIncidents?.value;
+    if (
+      diplomacyPlusEnabled &&
+      (diplomaticIncidents === undefined ||
+        this.cachedDiplomaticIncidents?.version !== proposalVersion)
+    ) {
+      diplomaticIncidents = this.mg
+        .diplomaticIncidentsFor(this.id())
+        .map((incident) => ({ ...incident }));
+      this.cachedDiplomaticIncidents = {
+        version: proposalVersion,
+        value: diplomaticIncidents,
+      };
+    }
 
     const warGoalEpoch = Math.floor(this.mg.ticks() / 10);
     let warGoals = this.cachedWarGoals?.value;
@@ -578,6 +605,25 @@ export class PlayerImpl implements Player {
         return target !== null && this.isWarAuthorizedAgainst(target);
       });
       this.cachedWarGoals = { epoch: warGoalEpoch, value: warGoals };
+    }
+
+    let diplomaticProposals = this.cachedDiplomaticProposals?.value;
+    if (
+      diplomacyPlusEnabled &&
+      (diplomaticProposals === undefined ||
+        this.cachedDiplomaticProposals?.version !== proposalVersion)
+    ) {
+      diplomaticProposals = this.mg
+        .diplomaticProposalsFor(this.id())
+        .map((proposal) => ({
+          ...proposal,
+          terms: proposal.terms.map((term) => ({ ...term })),
+          reasons: proposal.reasons.map((reason) => ({ ...reason })),
+        }));
+      this.cachedDiplomaticProposals = {
+        version: proposalVersion,
+        value: diplomaticProposals,
+      };
     }
 
     return {
@@ -675,6 +721,12 @@ export class PlayerImpl implements Player {
         ? Array.from(this.diplomaticCrises_.values(), (crisis) => ({
             ...crisis,
           })).sort((a, b) => a.id.localeCompare(b.id))
+        : undefined,
+      diplomaticProposals: diplomacyPlusEnabled
+        ? diplomaticProposals
+        : undefined,
+      diplomaticIncidents: diplomacyPlusEnabled
+        ? diplomaticIncidents
         : undefined,
       casusBelli: diplomacyPlusEnabled
         ? Array.from(this.casusBelli.values())
@@ -3042,9 +3094,67 @@ export class PlayerImpl implements Player {
       Math.round(this._food * 1000) +
       Math.round(this._materials * 1000) * 3 +
       Math.round(this._fuel * 1000) * 7;
+    const diplomacyHash = isDiplomacyPlusParticipant(this)
+      ? simpleHash(
+          JSON.stringify({
+            policy: [
+              this._threat,
+              this._reputation,
+              this._stability,
+              this._publicSatisfaction,
+              this._taxPolicy,
+              this._mobilizationTarget,
+            ],
+            relations: [...this.relations]
+              .map(([other, opinion]) => [other.id(), opinion])
+              .sort(([a], [b]) => String(a).localeCompare(String(b))),
+            trust: [...this.diplomaticTrust].sort(([a], [b]) =>
+              a.localeCompare(b),
+            ),
+            memory: this.diplomaticMemory
+              .map((memory) => ({ ...memory }))
+              .sort(
+                (a, b) =>
+                  a.otherID.localeCompare(b.otherID) ||
+                  a.createdAt - b.createdAt ||
+                  a.type.localeCompare(b.type),
+              ),
+            casusBelli: [...this.casusBelli].sort(([a], [b]) =>
+              a.localeCompare(b),
+            ),
+            warGoals: [...this.warGoals]
+              .map(([id, type]) => [
+                id,
+                type,
+                this.warGoalRegions.get(id),
+                this.warGoalInitialTargetTiles.get(id),
+              ])
+              .sort(([a], [b]) => String(a).localeCompare(String(b))),
+            treaties: {
+              nap: [...this.nonAggressionPacts].sort(([a], [b]) =>
+                a.localeCompare(b),
+              ),
+              trade: [...this.tradeAgreements].sort(([a], [b]) =>
+                a.localeCompare(b),
+              ),
+              truce: [...this.postWarTruces].sort(([a], [b]) =>
+                a.localeCompare(b),
+              ),
+              guarantees: [...this.guarantees_].sort(),
+            },
+            contracts: [...this.tradeContracts_.values()].sort((a, b) =>
+              a.id.localeCompare(b.id),
+            ),
+            crises: [...this.diplomaticCrises_.values()].sort((a, b) =>
+              a.id.localeCompare(b.id),
+            ),
+          }),
+        )
+      : 0;
     return (
       simpleHash(this.id()) * (this.troops() + this.numTilesOwned()) +
       resourceHash +
+      diplomacyHash +
       this._units.reduce((acc, unit) => acc + unit.hash(), 0)
     );
   }

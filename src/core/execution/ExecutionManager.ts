@@ -11,6 +11,8 @@ import { BoatRetreatExecution } from "./BoatRetreatExecution";
 import { ConstructionExecution } from "./ConstructionExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
 import { DiplomacyPlusExecution } from "./DiplomacyPlusExecution";
+import { DiplomaticIncidentExecution } from "./DiplomaticIncidentExecution";
+import { DiplomaticProposalExecution } from "./DiplomaticProposalExecution";
 import { DomesticPolicyExecution } from "./DomesticPolicyExecution";
 import { DonateGoldExecution } from "./DonateGoldExecution";
 import { DonateTroopsExecution } from "./DonateTroopExecution";
@@ -76,7 +78,7 @@ export class Executor {
           intent.targetID,
           null,
           true,
-          intent.targetTile == null
+          intent.targetTile === null || intent.targetTile === undefined
             ? null
             : (this.mg.historicalRegionAt(intent.targetTile)?.id ?? null),
         );
@@ -133,6 +135,20 @@ export class Executor {
           player,
           intent.targetID,
           intent.action,
+        );
+      case "diplomatic_proposal":
+        return new DiplomaticProposalExecution(
+          player,
+          intent.action,
+          intent.targetID,
+          intent.proposalID,
+          intent.terms,
+        );
+      case "diplomatic_incident":
+        return new DiplomaticIncidentExecution(
+          player,
+          intent.action,
+          intent.incidentID,
         );
       case "trade":
         return new TradeExecution(

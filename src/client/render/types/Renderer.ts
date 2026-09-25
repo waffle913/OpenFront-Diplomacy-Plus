@@ -1,4 +1,8 @@
-import type { NationalAgenda } from "../../../core/game/Game";
+import type {
+  DiplomaticIncident,
+  DiplomaticProposal,
+  NationalAgenda,
+} from "../../../core/game/Game";
 import type { TileRef } from "../../../core/game/GameMap";
 
 /** TrainType enum — numeric values matching UnitState.trainType. */
@@ -159,6 +163,8 @@ export interface PlayerState {
     deadlineAt: number;
     status: "pending" | "complied" | "refused" | "cancelled";
   }[];
+  diplomaticProposals?: DiplomaticProposal[];
+  diplomaticIncidents?: DiplomaticIncident[];
   casusBelli?: {
     type: string;
     targetID: string;

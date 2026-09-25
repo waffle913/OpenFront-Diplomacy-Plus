@@ -2,6 +2,8 @@ import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { EventBus } from "../../../core/EventBus";
 import {
+  DiplomaticProposal,
+  DiplomaticTerm,
   isDiplomacyPlusParticipant,
   NationalConcernType,
   NationalGoalType,
@@ -14,6 +16,8 @@ import {
 import { Controller } from "../../Controller";
 import {
   SendDiplomacyPlusIntentEvent,
+  SendDiplomaticIncidentIntentEvent,
+  SendDiplomaticProposalIntentEvent,
   SendDomesticPolicyIntentEvent,
   SendEmbargoIntentEvent,
   SendMobilizationIntentEvent,
@@ -768,6 +772,15 @@ export class DiplomacyPanel extends LitElement implements Controller {
       .filter((item) => item.otherID === my.id())
       .slice(-8)
       .reverse();
+    const proposals = my
+      .diplomaticProposals()
+      .filter(
+        (proposal) =>
+          proposal.proposerID === selected.id() ||
+          proposal.recipientID === selected.id(),
+      )
+      .slice()
+      .reverse();
     return html`<div class="eu4-title">Relations étrangères</div>
       <h2 class="mb-4 text-2xl font-black">${selected.displayName()}</h2>
       <div class="grid grid-cols-3 gap-3">
@@ -842,7 +855,154 @@ export class DiplomacyPanel extends LitElement implements Controller {
                 Aucun événement commun.
               </div>`}
         </div>
+      </div>
+      <div class="eu4-card mt-3">
+        <div class="eu4-title mb-2">Boîte diplomatique</div>
+        ${proposals.length
+          ? proposals.map((proposal) =>
+              this.renderDiplomaticProposal(my, proposal),
+            )
+          : html`<div class="text-sm text-slate-500">
+              Aucune proposition avec ce pays.
+            </div>`}
       </div>`;
+  }
+
+  private renderDiplomaticProposal(
+    my: PlayerView,
+    proposal: DiplomaticProposal,
+  ) {
+    const incoming = proposal.recipientID === my.id();
+    return html`<div
+      class="mb-2 rounded border border-white/10 bg-black/20 p-3"
+    >
+      <div class="eu4-row">
+        <b>${incoming ? "Reçue" : "Envoyée"} · révision ${proposal.revision}</b>
+        <span class="text-xs text-amber-200"
+          >${this.proposalStatusLabel(proposal.status)}</span
+        >
+      </div>
+      <div class="text-xs text-slate-300">
+        ${proposal.terms.map((term) => this.termLabel(term)).join(" · ")}
+      </div>
+      ${proposal.reasons.length
+        ? html`<div class="mt-1 text-[10px] text-slate-500">
+            ${proposal.reasons
+              .map(
+                (reason) =>
+                  `${this.diplomaticReasonLabel(reason.code)} (${reason.impact >= 0 ? "+" : ""}${reason.impact})${reason.detail ? ` : ${reason.detail}` : ""}`,
+              )
+              .join(" · ")}
+          </div>`
+        : nothing}
+      ${proposal.status === "pending" && incoming
+        ? html`<div class="mt-2 flex gap-2">
+            <button
+              class="rounded bg-emerald-800 px-2 py-1 text-xs"
+              @click=${() => this.respondToProposal("accept", proposal)}
+            >
+              Accepter
+            </button>
+            <button
+              class="rounded bg-red-900 px-2 py-1 text-xs"
+              @click=${() => this.respondToProposal("reject", proposal)}
+            >
+              Refuser
+            </button>
+            <button
+              class="rounded bg-amber-800 px-2 py-1 text-xs"
+              @click=${() => this.respondToProposal("counter", proposal)}
+            >
+              Contre-proposer
+            </button>
+          </div>`
+        : proposal.status === "pending"
+          ? html`<button
+              class="mt-2 rounded bg-slate-700 px-2 py-1 text-xs"
+              @click=${() => this.respondToProposal("withdraw", proposal)}
+            >
+              Retirer
+            </button>`
+          : nothing}
+    </div>`;
+  }
+
+  private proposalStatusLabel(status: DiplomaticProposal["status"]): string {
+    return {
+      pending: "EN ATTENTE",
+      accepted_pending_settlement: "ACCEPTÉE · APPLICATION À LA REPRISE",
+      settled: "APPLIQUÉE",
+      rejected: "REFUSÉE",
+      countered: "CONTRE-PROPOSÉE",
+      withdrawn: "RETIRÉE",
+      expired: "EXPIRÉE",
+      invalidated: "INVALIDÉE",
+    }[status];
+  }
+
+  private diplomaticReasonLabel(
+    code: DiplomaticProposal["reasons"][number]["code"],
+  ): string {
+    const labels: Partial<
+      Record<DiplomaticProposal["reasons"][number]["code"], string>
+    > = {
+      valid: "Conditions valides",
+      favorable_relations: "Relations favorables",
+      high_trust: "Confiance élevée",
+      low_trust: "Confiance insuffisante",
+      military_leverage: "Avantage militaire",
+      military_disadvantage: "Désavantage militaire",
+      economic_exhaustion: "Épuisement économique",
+      reasonable_reparations: "Réparations raisonnables",
+      excessive_reparations: "Réparations excessives",
+      government_preference: "Orientation du gouvernement",
+      agenda_support: "Conforme à l’agenda national",
+      agenda_opposition: "Contraire à l’agenda national",
+      trade_need: "Besoin commercial",
+      diplomatic_isolation: "Isolement diplomatique",
+      security_concern: "Préoccupation de sécurité",
+      war_exhaustion: "Fatigue de guerre",
+      unresolved_incident: "Incident non résolu",
+      confirmed_incident: "Responsabilité confirmée",
+      economic_cost: "Coût économique",
+      insufficient_gold: "Fonds insuffisants",
+      trade_blocked: "Commerce bloqué",
+      active_war: "Guerre en cours",
+      war_required: "Guerre requise",
+      already_active: "Accord déjà actif",
+      proposal_expired: "Proposition expirée",
+      reparations_exceed_damages: "Demande supérieure aux dommages",
+    };
+    return labels[code] ?? code.replace(/_/g, " ");
+  }
+
+  private termLabel(term: DiplomaticTerm): string {
+    if (term.kind === "non_aggression_pact") return "Pacte de non-agression";
+    if (term.kind === "trade_agreement") return "Accord commercial";
+    if (term.kind === "end_war") return "Fin de guerre";
+    return `${term.amount} or de réparations`;
+  }
+
+  private respondToProposal(
+    action: "accept" | "reject" | "withdraw" | "counter",
+    proposal: DiplomaticProposal,
+  ) {
+    const counterTerms =
+      action === "counter"
+        ? proposal.terms.map((term) =>
+            term.kind === "gold_reparations"
+              ? { ...term, amount: Math.max(1, Math.floor(term.amount / 2)) }
+              : { ...term },
+          )
+        : [];
+    this.eventBus.emit(
+      new SendDiplomaticProposalIntentEvent(
+        action,
+        undefined,
+        proposal.id,
+        counterTerms,
+      ),
+    );
   }
 
   private renderTrade(my: PlayerView, selected: PlayerView) {
@@ -975,6 +1135,15 @@ export class DiplomacyPanel extends LitElement implements Controller {
           crisis.issuerID === selected.id() ||
           crisis.targetID === selected.id(),
       );
+    const incidents = my
+      .diplomaticIncidents()
+      .filter(
+        (incident) =>
+          incident.offenderID === selected.id() ||
+          incident.victimID === selected.id(),
+      )
+      .slice()
+      .reverse();
     return html`<div class="eu4-title">Escalade internationale</div>
       <h2 class="mb-4 text-2xl font-black">
         Crises avec ${selected.displayName()}
@@ -1005,7 +1174,90 @@ export class DiplomacyPanel extends LitElement implements Controller {
           )
         : html`<div class="eu4-card text-slate-500">
             Aucune crise impliquant ce pays.
+          </div>`}
+      <div class="eu4-title mb-2 mt-4">Incidents internationaux</div>
+      ${incidents.length
+        ? incidents.map(
+            (incident) =>
+              html`<div class="eu4-card mb-3">
+                <div class="eu4-row">
+                  <b
+                    >${incident.type === "trade_ship_seized"
+                      ? "Saisie d'un navire commercial"
+                      : "Destruction d'un navire commercial"}</b
+                  >
+                  <span class="text-amber-300"
+                    >${incident.status.toUpperCase()}</span
+                  >
+                </div>
+                <div class="text-xs text-slate-400">
+                  Victime : ${this.playerName(incident.victimID)} · Responsable
+                  : ${this.playerName(incident.offenderID)}
+                </div>
+                <div class="mt-1 text-xs">
+                  Dommages : <b>${incident.damages} or</b> · Preuves :
+                  <b
+                    >${incident.evidence === "confirmed"
+                      ? "confirmées"
+                      : "contestées"}</b
+                  >
+                </div>
+                ${incident.victimID === my.id() &&
+                ["unresolved", "protested", "escalated"].includes(
+                  incident.status,
+                )
+                  ? html`<div class="mt-2 flex flex-wrap gap-2">
+                      ${incident.status === "unresolved"
+                        ? html`<button
+                            class="rounded bg-amber-800 px-2 py-1 text-xs"
+                            @click=${() =>
+                              this.sendIncidentAction("protest", incident.id)}
+                          >
+                            Protester officiellement
+                          </button>`
+                        : nothing}
+                      <button
+                        class="rounded bg-red-900 px-2 py-1 text-xs"
+                        ?disabled=${incident.damages < 1}
+                        @click=${() =>
+                          this.sendProposal(
+                            this.game.player(incident.offenderID),
+                            [
+                              {
+                                kind: "gold_reparations",
+                                payerID: incident.offenderID,
+                                recipientID: incident.victimID,
+                                amount: Math.max(1, incident.damages),
+                                incidentID: incident.id,
+                              },
+                            ],
+                          )}
+                      >
+                        Demander réparation
+                      </button>
+                      <button
+                        class="rounded bg-slate-700 px-2 py-1 text-xs"
+                        @click=${() =>
+                          this.sendIncidentAction("dismiss", incident.id)}
+                      >
+                        Classer l'affaire
+                      </button>
+                    </div>`
+                  : nothing}
+              </div>`,
+          )
+        : html`<div class="eu4-card text-slate-500">
+            Aucun incident impliquant ce pays.
           </div>`}`;
+  }
+
+  private sendIncidentAction(
+    action: "protest" | "dismiss",
+    incidentID: string,
+  ) {
+    this.eventBus.emit(
+      new SendDiplomaticIncidentIntentEvent(action, incidentID),
+    );
   }
 
   private renderGovernment(my: PlayerView) {
@@ -1109,7 +1361,10 @@ export class DiplomacyPanel extends LitElement implements Controller {
       <div class="grid gap-2">
         <button
           class="eu4-action"
-          @click=${() => this.emitDiplomacy(selected, "offer_nap")}
+          @click=${() =>
+            this.sendProposal(selected, [
+              { kind: "non_aggression_pact", durationTicks: 3600 },
+            ])}
         >
           🤝 Proposer un NAP
         </button>
@@ -1142,7 +1397,10 @@ export class DiplomacyPanel extends LitElement implements Controller {
         </button>
         <button
           class="eu4-action"
-          @click=${() => this.emitDiplomacy(selected, "trade_agreement")}
+          @click=${() =>
+            this.sendProposal(selected, [
+              { kind: "trade_agreement", durationTicks: 3600 },
+            ])}
         >
           📈 Accord préférentiel
         </button>
@@ -1179,13 +1437,25 @@ export class DiplomacyPanel extends LitElement implements Controller {
         </button>
         <button
           class="eu4-action"
-          @click=${() => this.emitDiplomacy(selected, "offer_white_peace")}
+          @click=${() =>
+            this.sendProposal(selected, [
+              { kind: "end_war", truceTicks: 1200 },
+            ])}
         >
           🕊 Paix blanche
         </button>
         <button
           class="eu4-action border-red-700/50 bg-red-950/60"
-          @click=${() => this.emitDiplomacy(selected, "demand_reparations")}
+          @click=${() =>
+            this.sendProposal(selected, [
+              {
+                kind: "gold_reparations",
+                payerID: selected.id(),
+                recipientID: my.id(),
+                amount: 500,
+              },
+              { kind: "end_war", truceTicks: 1800 },
+            ])}
         >
           💰 Exiger des réparations
         </button>
@@ -1213,6 +1483,12 @@ export class DiplomacyPanel extends LitElement implements Controller {
       </div>
       <div class=${`mt-1 text-2xl font-black ${tone}`}>${value}</div>
     </div>`;
+  }
+
+  private sendProposal(target: PlayerView, terms: DiplomaticTerm[]) {
+    this.eventBus.emit(
+      new SendDiplomaticProposalIntentEvent("create", target, undefined, terms),
+    );
   }
 
   private numberField(

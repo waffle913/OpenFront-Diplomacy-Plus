@@ -46,6 +46,8 @@ export type Intent =
   | BuildUnitIntent
   | EmbargoIntent
   | DiplomacyPlusIntent
+  | DiplomaticProposalIntent
+  | DiplomaticIncidentIntent
   | TradeIntent
   | DomesticPolicyIntent
   | MilitaryMobilizationIntent
@@ -75,6 +77,12 @@ export type DonateGoldIntent = z.infer<typeof DonateGoldIntentSchema>;
 export type DonateTroopsIntent = z.infer<typeof DonateTroopIntentSchema>;
 export type EmbargoIntent = z.infer<typeof EmbargoIntentSchema>;
 export type DiplomacyPlusIntent = z.infer<typeof DiplomacyPlusIntentSchema>;
+export type DiplomaticProposalIntent = z.infer<
+  typeof DiplomaticProposalIntentSchema
+>;
+export type DiplomaticIncidentIntent = z.infer<
+  typeof DiplomaticIncidentIntentSchema
+>;
 export type TradeIntent = z.infer<typeof TradeIntentSchema>;
 export type DomesticPolicyIntent = z.infer<typeof DomesticPolicyIntentSchema>;
 export type MilitaryMobilizationIntent = z.infer<
@@ -693,6 +701,48 @@ export const DiplomacyPlusIntentSchema = z.object({
   ]),
 });
 
+export const DiplomaticTermSchema = z.union([
+  z.object({
+    kind: z.literal("non_aggression_pact"),
+    durationTicks: zb.uint({ min: 100, max: 36000 }),
+  }),
+  z.object({
+    kind: z.literal("trade_agreement"),
+    durationTicks: zb.uint({ min: 100, max: 36000 }),
+  }),
+  z.object({
+    kind: z.literal("end_war"),
+    truceTicks: zb.uint({ min: 100, max: 36000 }),
+  }),
+  z.object({
+    kind: z.literal("gold_reparations"),
+    payerID: MappedID,
+    recipientID: MappedID,
+    amount: zb.uint({ min: 1, max: 1000000 }),
+    incidentID: z.string().max(128).optional(),
+  }),
+]);
+
+export const DiplomaticIncidentIntentSchema = z.object({
+  type: z.literal("diplomatic_incident"),
+  action: z.union([z.literal("protest"), z.literal("dismiss")]),
+  incidentID: z.string().max(128),
+});
+
+export const DiplomaticProposalIntentSchema = z.object({
+  type: z.literal("diplomatic_proposal"),
+  action: z.union([
+    z.literal("create"),
+    z.literal("accept"),
+    z.literal("reject"),
+    z.literal("withdraw"),
+    z.literal("counter"),
+  ]),
+  targetID: MappedID.optional(),
+  proposalID: z.string().max(128).optional(),
+  terms: z.array(DiplomaticTermSchema).max(8).optional(),
+});
+
 export const TradeIntentSchema = z.object({
   type: z.literal("trade"),
   targetID: MappedID,
@@ -841,6 +891,8 @@ export const IntentSchema = z.discriminatedUnion("type", [
   UpgradeStructureIntentSchema,
   EmbargoIntentSchema,
   DiplomacyPlusIntentSchema,
+  DiplomaticProposalIntentSchema,
+  DiplomaticIncidentIntentSchema,
   TradeIntentSchema,
   DomesticPolicyIntentSchema,
   MilitaryMobilizationIntentSchema,

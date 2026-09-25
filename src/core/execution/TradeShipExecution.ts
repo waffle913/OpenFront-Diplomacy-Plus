@@ -17,6 +17,7 @@ export class TradeShipExecution implements Execution {
   private mg: Game;
   private tradeShip: Unit | undefined;
   private wasCaptured = false;
+  private captureIncidentID: string | undefined;
   private pathFinder: WaterPathFinder;
   private tilesTraveled = 0;
   private motionPlanId = 1;
@@ -69,6 +70,13 @@ export class TradeShipExecution implements Execution {
     if (this.wasCaptured !== true && this.origOwner !== tradeShipOwner) {
       // Store as variable in case ship is recaptured by previous owner
       this.wasCaptured = true;
+      this.captureIncidentID = this.mg.recordDiplomaticIncident(
+        "trade_ship_seized",
+        tradeShipOwner,
+        this.origOwner,
+        0,
+        this.tradeShip.id(),
+      )?.id;
       this.mg.displayMessage(
         "events_display.trade_ship_captured",
         MessageType.UNIT_DESTROYED,
@@ -181,9 +189,21 @@ export class TradeShipExecution implements Execution {
     if (this.wasCaptured && this.tradeShip!.owner() === this.origOwner) {
       // Retaken by its original owner: the payout stands, but nobody pirated it.
       this.origOwner.addGold(gold, this._dstPort.tile());
+      if (this.captureIncidentID !== undefined) {
+        this.mg.dismissDiplomaticIncident(
+          this.origOwner,
+          this.captureIncidentID,
+        );
+      }
     } else if (this.wasCaptured) {
       this.tradeShip!.owner().addGold(gold, this._dstPort.tile());
       this.tradeShip!.owner().addPiracyGold(gold);
+      if (this.captureIncidentID !== undefined) {
+        this.mg.updateDiplomaticIncidentDamages(
+          this.captureIncidentID,
+          Number(gold),
+        );
+      }
       this.mg.displayMessage(
         "events_display.received_gold_from_captured_ship",
         MessageType.CAPTURED_ENEMY_UNIT,

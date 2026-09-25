@@ -1,6 +1,6 @@
 # Diplomacy+ — Roadmap de développement et de test
 
-Mise à jour : 24 septembre 2026.
+Mise à jour : 25 septembre 2026.
 Statut : plan de travail. Les étapes futures ne sont pas encore implémentées.
 
 ## Vision retenue
@@ -20,6 +20,9 @@ Garder dès la conception la possibilité de confier les décisions politiques �
 - Économie stratégique active : production, consommation, pénuries, logistique militaire, matériaux de construction et commerce bilatéral récurrent.
 - Relations structurées, intérêts nationaux, gouvernements successifs, coopération, crises temporisées et paix négociée présents dans une première version jouable.
 - Passerelle de décisions politiques structurées prête pour un futur pilote LLM ; aucun service externe n'est requis pour jouer.
+- Registre diplomatique central ajouté : propositions immuables, réponses différées, contre-propositions, expiration, invalidation et application atomique.
+- Premier incident persistant branché sur la saisie d'un navire commercial. La victime peut protester, abandonner l'affaire ou réclamer des réparations, y compris pendant la pause.
+- Première tranche d'IA diplomatique active : protestation et réparations après un incident, ainsi que propositions espacées de commerce, pacte ou paix fondées sur l'agenda national.
 - Contrôles solo existants : pause et vitesses dont ×0,5.
 - Dernière vérification : 122 tests ciblés passent, TypeScript compile et le renderer de production est construit (empreinte cœur `f7f19cebb3c3`).
 - Candidate V2 installée dans le renderer Steam le 24 septembre 2026 ; `index.html` et `asset-hashes.json` correspondent exactement au build. La sauvegarde stable V1.16.1 reste disponible pour restauration.
@@ -140,11 +143,11 @@ Critère de sortie : plusieurs pays peuvent poursuivre un intérêt commun sans 
 
 ### 6. Tensions et crises
 
-**Première version implémentée, vérifiée techniquement.** Les ultimatums ouvrent une crise partagée avec réponse différée et échéance. Désescalade, refus, casus belli, concession, médiation et embargos ont des conséquences moteur. Une trêve interdit l'ouverture d'une crise et neutralise aussi les armes spéciales visant le signataire.
+**Incidents commerciaux et négociation minimale implémentés, vérifiés techniquement.** Les ultimatums ouvrent une crise partagée avec réponse différée et échéance. La saisie d'un navire commercial crée désormais un incident persistant et confirmé, visible dans Diplomatie. Protestation, abandon, demande chiffrée, acceptation, refus et contre-proposition passent par le registre commun. L'IA victime proteste puis réclame réparation sans déclencher automatiquement une guerre. Une trêve interdit l'ouverture d'une crise et neutralise aussi les armes spéciales visant le signataire.
 
 Objectif jouable : permettre une escalade diplomatique avant la guerre, et une issue pacifique.
 
-Lots : incidents frontaliers, demandes formelles, ultimatums avec échéance, sanctions et embargos commerciaux, médiation et concessions.
+Lots restants : destruction d'un navire et autres types d'incidents, restitution et excuses, médiation d'incident, sanctions graduelles, ultimatum relié à l'incident, puis casus belli en dernier recours.
 
 À tester : motifs valides, délais respectés, conséquences commerciales réelles, refus et acceptation traités une seule fois. Une crise ne contourne pas une trêve.
 
@@ -212,4 +215,4 @@ Demandé après validation du calendrier. Les ordres solo sont transmis pendant 
 
 ## Prochain lot concret
 
-Tester en partie la candidate V2 : calendrier et pause, lecture des intérêts, offre commerciale acceptée/refusée, livraisons et annulation, aide/projet commun, crise et concession, ravitaillement d'une guerre, paix négociée, fiscalité et succession. Les observations du joueur décideront des corrections et de l'équilibrage avant d'approfondir les transferts territoriaux et un fournisseur LLM réel.
+Tester en partie la capture d'un navire commercial : apparition de l'incident, protestation pendant la pause, demande de réparations, réponse ou contre-proposition de l'IA et règlement après reprise. Ensuite, compléter l'escalade graduelle par la médiation et les sanctions. Le transfert régional `CedeRegion` reste le lot séparé prévu pour la paix négociée ; il ne doit pas être mélangé au prototype d'incident.

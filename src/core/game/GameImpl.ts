@@ -9,11 +9,18 @@ import { ATTACK_INDEX_SENT } from "../StatsSchemas";
 import { simpleHash } from "../Util";
 import { AllianceImpl } from "./AllianceImpl";
 import { AllianceRequestImpl } from "./AllianceRequestImpl";
+import { DiplomacyRegistry } from "./DiplomacyRegistry";
 import {
   Alliance,
   AllianceRequest,
   Cell,
   ColoredTeams,
+  DiplomaticIncident,
+  DiplomaticIncidentType,
+  DiplomaticProposal,
+  DiplomaticProposalResult,
+  DiplomaticReason,
+  DiplomaticTerm,
   Duos,
   EmojiMessage,
   Execution,
@@ -97,6 +104,7 @@ export class GameImpl implements Game {
     fuel: 0,
   };
   private regionalEconomyReady = false;
+  private readonly diplomacyRegistry: DiplomacyRegistry;
   private startTick: number | null = null;
 
   private unInitExecs: Execution[] = [];
@@ -168,6 +176,7 @@ export class GameImpl implements Game {
       this.populateTeams();
     }
     this.addPlayers();
+    this.diplomacyRegistry = new DiplomacyRegistry(this);
 
     console.log(
       `[GameImpl] Constructor total: ${(performance.now() - constructorStart).toFixed(0)}ms`,
@@ -831,6 +840,110 @@ export class GameImpl implements Game {
     this.addUpdate({ type: GameUpdateType.GamePaused, paused });
   }
 
+  diplomaticProposalVersion(): number {
+    return this.diplomacyRegistry.version();
+  }
+
+  diplomaticProposalsFor(playerID: PlayerID): readonly DiplomaticProposal[] {
+    return this.diplomacyRegistry.proposalsFor(playerID);
+  }
+
+  diplomaticProposal(id: string): DiplomaticProposal | null {
+    return this.diplomacyRegistry.proposal(id);
+  }
+
+  createDiplomaticProposal(
+    proposer: Player,
+    recipient: Player,
+    terms: DiplomaticTerm[],
+    parentProposalID?: string,
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult {
+    return this.diplomacyRegistry.create(
+      proposer,
+      recipient,
+      terms,
+      parentProposalID,
+      reasons,
+    );
+  }
+
+  acceptDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult {
+    return this.diplomacyRegistry.accept(actor, proposalID, reasons);
+  }
+
+  rejectDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult {
+    return this.diplomacyRegistry.reject(actor, proposalID, reasons);
+  }
+
+  withdrawDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+  ): DiplomaticProposalResult {
+    return this.diplomacyRegistry.withdraw(actor, proposalID);
+  }
+
+  counterDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+    terms: DiplomaticTerm[],
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult {
+    return this.diplomacyRegistry.counter(actor, proposalID, terms, reasons);
+  }
+
+  diplomaticStateHash(): number {
+    return this.diplomacyRegistry.hash();
+  }
+
+  diplomaticIncidentsFor(playerID: PlayerID): readonly DiplomaticIncident[] {
+    return this.diplomacyRegistry.incidentsFor(playerID);
+  }
+
+  diplomaticIncident(id: string): DiplomaticIncident | null {
+    return this.diplomacyRegistry.incident(id);
+  }
+
+  recordDiplomaticIncident(
+    type: DiplomaticIncidentType,
+    offender: Player,
+    victim: Player,
+    damages: number,
+    sourceUnitID?: number,
+  ): DiplomaticIncident | null {
+    return this.diplomacyRegistry.recordIncident(
+      type,
+      offender,
+      victim,
+      damages,
+      sourceUnitID,
+    );
+  }
+
+  updateDiplomaticIncidentDamages(id: string, damages: number): void {
+    this.diplomacyRegistry.updateIncidentDamages(id, damages);
+  }
+
+  protestDiplomaticIncident(actor: Player, id: string): boolean {
+    return this.diplomacyRegistry.protestIncident(actor, id);
+  }
+
+  dismissDiplomaticIncident(actor: Player, id: string): boolean {
+    return this.diplomacyRegistry.dismissIncident(actor, id);
+  }
+
+  settleDiplomaticIncident(id: string, amount: number): void {
+    this.diplomacyRegistry.settleIncident(id, amount);
+  }
+
   inSpawnPhase(): boolean {
     return this.startTick === null;
   }
@@ -897,6 +1010,10 @@ export class GameImpl implements Game {
         unInited.push(e);
       }
     });
+
+    // Proposals expire and accepted proposals settle once per regular game
+    // tick. executePausedActions deliberately never calls this method.
+    this.diplomacyRegistry.tick();
 
     this.removeInactiveExecutions();
 
@@ -1018,7 +1135,7 @@ export class GameImpl implements Game {
     this._players.forEach((p) => {
       hash += p.hash();
     });
-    return hash;
+    return hash + this.diplomacyRegistry.hash();
   }
 
   terraNullius(): TerraNullius {

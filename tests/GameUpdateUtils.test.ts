@@ -93,6 +93,54 @@ describe("diffPlayerUpdate", () => {
     expect(diff.diplomaticMemories).toEqual(next.diplomaticMemories);
   });
 
+  it("transmits proposal lifecycle changes and detaches nested state", () => {
+    const proposal = {
+      id: "dp:1",
+      rootProposalID: "dp:1",
+      revision: 0,
+      proposerID: "player-a",
+      recipientID: "b",
+      createdAt: 10,
+      responseAfter: 20,
+      expiresAt: 610,
+      status: "pending" as const,
+      terms: [{ kind: "non_aggression_pact" as const, durationTicks: 3600 }],
+      reasons: [{ code: "valid" as const, impact: 0 }],
+    };
+    const prev = makePlayerUpdate({ diplomaticProposals: [] });
+    const next = makePlayerUpdate({ diplomaticProposals: [proposal] });
+    const diff = diffPlayerUpdate(prev, next)!;
+    expect(diff.diplomaticProposals).toEqual([proposal]);
+
+    const state = makePlayerState();
+    applyStateUpdate(state, diff);
+    expect(state.diplomaticProposals).toEqual([proposal]);
+    expect(state.diplomaticProposals).not.toBe(diff.diplomaticProposals);
+    expect(state.diplomaticProposals![0].terms).not.toBe(proposal.terms);
+  });
+
+  it("transmits diplomatic incident status and damage changes", () => {
+    const incident = {
+      id: "di:1",
+      type: "trade_ship_seized" as const,
+      offenderID: "b",
+      victimID: "player-a",
+      createdAt: 10,
+      severity: 50,
+      damages: 450,
+      evidence: "confirmed" as const,
+      status: "unresolved" as const,
+      sourceUnitID: 7,
+    };
+    const prev = makePlayerUpdate({ diplomaticIncidents: [] });
+    const next = makePlayerUpdate({ diplomaticIncidents: [incident] });
+    const diff = diffPlayerUpdate(prev, next)!;
+    const state = makePlayerState();
+    applyStateUpdate(state, diff);
+    expect(state.diplomaticIncidents).toEqual([incident]);
+    expect(state.diplomaticIncidents).not.toBe(diff.diplomaticIncidents);
+  });
+
   it("transmits a replaced national agenda", () => {
     const agenda = {
       generatedAt: 100,

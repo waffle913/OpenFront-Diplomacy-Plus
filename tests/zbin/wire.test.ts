@@ -94,6 +94,28 @@ const SAMPLE_INTENTS: StampedIntent[] = [
   },
   { type: "embargo", clientID: P1, targetID: P2, action: "start" },
   { type: "embargo_all", clientID: P1, action: "stop" },
+  {
+    type: "diplomatic_proposal",
+    clientID: P1,
+    action: "create",
+    targetID: P2,
+    terms: [
+      { kind: "end_war", truceTicks: 1800 },
+      {
+        kind: "gold_reparations",
+        payerID: P2,
+        recipientID: P1,
+        amount: 500,
+        incidentID: "di:1",
+      },
+    ],
+  },
+  {
+    type: "diplomatic_incident",
+    clientID: P1,
+    action: "protest",
+    incidentID: "di:1",
+  },
   { type: "move_warship", clientID: P3, unitIds: [1, 2, 3], tile: 555 },
   { type: "delete_unit", clientID: P3, unitId: 9 },
   { type: "mark_disconnected", clientID: P1, isDisconnected: true },

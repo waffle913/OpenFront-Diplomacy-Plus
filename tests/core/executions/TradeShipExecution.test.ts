@@ -36,6 +36,7 @@ describe("TradeShipExecution", () => {
       instantBuild: true,
     });
     game.displayMessage = vi.fn();
+    game.recordDiplomaticIncident = vi.fn(() => null);
     origOwner = {
       canBuild: vi.fn(() => true),
       buildUnit: vi.fn((type, spawn, opts) => tradeShip),
@@ -244,6 +245,14 @@ describe("TradeShipExecution recapture", () => {
 
     pirate.captureUnit(tradeShip);
     game.executeNextTick();
+    const [incident] = game.diplomaticIncidentsFor(origin.id());
+    expect(incident).toMatchObject({
+      type: "trade_ship_seized",
+      offenderID: pirate.id(),
+      victimID: origin.id(),
+      status: "unresolved",
+      sourceUnitID: tradeShip.id(),
+    });
     // Losing the source port keeps the retaken ship sailing home instead of
     // being scrapped as a same-owner trade.
     partner.captureUnit(srcPort);
@@ -258,6 +267,7 @@ describe("TradeShipExecution recapture", () => {
     expect(tradeShip.targetUnit()).toBe(homePort);
     expect(origin.gold()).toBeGreaterThan(goldBefore);
     expect(origin.piracyGold()).toBe(0n);
+    expect(incident.status).toBe("dismissed");
     expect(displayMessage.mock.calls.map(([message]) => message)).not.toContain(
       "events_display.received_gold_from_captured_ship",
     );

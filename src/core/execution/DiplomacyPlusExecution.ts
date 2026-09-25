@@ -73,6 +73,48 @@ export class DiplomacyPlusExecution implements Execution {
     }
 
     try {
+      if (this.action === "offer_nap") {
+        this.mg.createDiplomaticProposal(this.actor, target, [
+          { kind: "non_aggression_pact", durationTicks: 3600 },
+        ]);
+        return;
+      }
+      if (this.action === "trade_agreement") {
+        this.mg.createDiplomaticProposal(this.actor, target, [
+          { kind: "trade_agreement", durationTicks: 3600 },
+        ]);
+        return;
+      }
+      if (this.action === "offer_white_peace") {
+        this.mg.createDiplomaticProposal(this.actor, target, [
+          { kind: "end_war", truceTicks: 1200 },
+        ]);
+        return;
+      }
+      if (this.action === "demand_reparations") {
+        this.actor.rememberDiplomaticEvent(
+          target,
+          "reparations_requested",
+          -2,
+          -2,
+        );
+        target.rememberDiplomaticEvent(
+          this.actor,
+          "reparations_requested",
+          -8,
+          -8,
+        );
+        this.mg.createDiplomaticProposal(this.actor, target, [
+          {
+            kind: "gold_reparations",
+            payerID: target.id(),
+            recipientID: this.actor.id(),
+            amount: 500,
+          },
+          { kind: "end_war", truceTicks: 1800 },
+        ]);
+        return;
+      }
       if (this.action === "guarantee") {
         if (this.actor.guarantees(target)) return;
         this.actor.setGuarantee(target, true);
@@ -96,120 +138,12 @@ export class DiplomacyPlusExecution implements Execution {
         if (accept) this.actor.launchJointProject(target);
         return;
       }
-      if (this.action === "trade_agreement") {
-        const accept =
-          target.type() === PlayerType.Nation &&
-          target.trust(this.actor) >= 45 &&
-          target.relation(this.actor) !== Relation.Hostile &&
-          target.canTrade(this.actor);
-        if (accept) this.actor.setTradeAgreement(target);
-        return;
-      }
-      if (
-        this.action === "offer_white_peace" ||
-        this.action === "demand_reparations"
-      ) {
-        const atWar =
-          this.actor.isWarAuthorizedAgainst(target) ||
-          target.isWarAuthorizedAgainst(this.actor) ||
-          this.actor
-            .outgoingAttacks()
-            .some((attack) => attack.target() === target) ||
-          target
-            .outgoingAttacks()
-            .some((attack) => attack.target() === this.actor);
-        if (!atWar || target.type() !== PlayerType.Nation) return;
-        if (this.action === "demand_reparations") {
-          this.actor.rememberDiplomaticEvent(
-            target,
-            "reparations_requested",
-            -2,
-            -2,
-          );
-          target.rememberDiplomaticEvent(
-            this.actor,
-            "reparations_requested",
-            -8,
-            -8,
-          );
-        }
-        const leverage = this.actor.troops() / Math.max(1, target.troops());
-        const exhausted =
-          target.resources().food <= 0 || target.resources().fuel <= 0;
-        if (this.action === "offer_white_peace") {
-          if (leverage >= 0.8 || exhausted) {
-            this.actor.concludePeaceWith(target, 1200);
-          }
-          return;
-        }
-        if (leverage >= 1.35 || (leverage >= 1 && exhausted)) {
-          const reparations = target.removeGold(
-            target.gold() < 500n ? target.gold() : 500n,
-          );
-          this.actor.addGold(reparations);
-          this.actor.rememberDiplomaticEvent(target, "reparations_paid", 8, 6);
-          target.rememberDiplomaticEvent(
-            this.actor,
-            "reparations_paid",
-            -4,
-            -2,
-          );
-          this.actor.concludePeaceWith(target, 1800);
-        } else {
-          this.actor.rememberDiplomaticEvent(
-            target,
-            "reparations_refused",
-            -10,
-            -10,
-          );
-          target.rememberDiplomaticEvent(
-            this.actor,
-            "reparations_refused",
-            -5,
-            -5,
-          );
-        }
-        return;
-      }
       if (this.action === "offer_concession") {
         this.actor.offerCrisisConcession(target);
         return;
       }
       if (this.action === "mediate_crisis") {
         this.actor.mediateCrisisInvolving(target);
-        return;
-      }
-
-      if (this.action === "offer_nap") {
-        if (
-          this.actor.isWarAuthorizedAgainst(target) ||
-          target.isWarAuthorizedAgainst(this.actor)
-        )
-          return;
-        if (
-          this.actor.relation(target) === Relation.Hostile ||
-          target.relation(this.actor) === Relation.Hostile
-        )
-          return;
-
-        // Human-human offers need a reply UI later. Nations can evaluate immediately.
-        let accept = target.type() === PlayerType.Nation;
-        if (accept) {
-          const hostilePressure =
-            this.actor.threat() * 0.35 + (100 - this.actor.reputation()) * 0.25;
-          accept =
-            hostilePressure < 42 ||
-            target.relation(this.actor) >= Relation.Friendly;
-        }
-        if (accept) {
-          this.actor.setNonAggressionPact(target, 3600);
-          this.actor.updateRelation(target, 10);
-          target.updateRelation(this.actor, 10);
-          this.actor.changeTrust(target, 10);
-          target.changeTrust(this.actor, 10);
-          this.actor.rememberDiplomaticEvent(target, "nap_signed", 10, 10);
-          target.rememberDiplomaticEvent(this.actor, "nap_signed", 10, 10);
-        }
         return;
       }
 
@@ -227,7 +161,11 @@ export class DiplomacyPlusExecution implements Execution {
     return (
       this.action === "guarantee" ||
       this.action === "withdraw_guarantee" ||
-      this.action === "economic_aid"
+      this.action === "economic_aid" ||
+      this.action === "offer_nap" ||
+      this.action === "trade_agreement" ||
+      this.action === "offer_white_peace" ||
+      this.action === "demand_reparations"
     );
   }
 

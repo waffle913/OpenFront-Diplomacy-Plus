@@ -423,6 +423,137 @@ export interface DiplomaticCrisis {
   status: "pending" | "complied" | "refused" | "cancelled";
 }
 
+export type DiplomaticIncidentType =
+  | "trade_ship_seized"
+  | "trade_ship_destroyed";
+export type DiplomaticIncidentStatus =
+  | "unresolved"
+  | "protested"
+  | "negotiating"
+  | "settled"
+  | "dismissed"
+  | "escalated";
+export interface DiplomaticIncident {
+  id: string;
+  type: DiplomaticIncidentType;
+  offenderID: PlayerID;
+  victimID: PlayerID;
+  createdAt: Tick;
+  severity: number;
+  damages: number;
+  evidence: "confirmed" | "disputed";
+  status: DiplomaticIncidentStatus;
+  demandedReparations?: number;
+  settlementAmount?: number;
+  sourceUnitID?: number;
+}
+
+export type DiplomaticProposalStatus =
+  | "pending"
+  | "accepted_pending_settlement"
+  | "settled"
+  | "rejected"
+  | "countered"
+  | "withdrawn"
+  | "expired"
+  | "invalidated";
+
+export type DiplomaticReasonCode =
+  | "valid"
+  | "invalid_participant"
+  | "same_country"
+  | "country_not_alive"
+  | "empty_terms"
+  | "invalid_term"
+  | "duplicate_term"
+  | "duplicate_pending"
+  | "proposal_missing"
+  | "proposal_not_pending"
+  | "not_proposer"
+  | "not_recipient"
+  | "proposal_expired"
+  | "active_war"
+  | "war_required"
+  | "already_active"
+  | "trade_blocked"
+  | "insufficient_gold"
+  | "favorable_relations"
+  | "high_trust"
+  | "low_trust"
+  | "military_leverage"
+  | "military_disadvantage"
+  | "economic_exhaustion"
+  | "reasonable_reparations"
+  | "excessive_reparations"
+  | "government_preference"
+  | "agenda_support"
+  | "agenda_opposition"
+  | "trade_need"
+  | "diplomatic_isolation"
+  | "security_concern"
+  | "war_exhaustion"
+  | "unresolved_incident"
+  | "confirmed_incident"
+  | "economic_cost"
+  | "incident_missing"
+  | "incident_resolved"
+  | "not_incident_victim"
+  | "reparations_exceed_damages";
+
+export interface DiplomaticReason {
+  code: DiplomaticReasonCode;
+  impact: number;
+  detail?: string;
+}
+
+export type DiplomaticTerm =
+  | { kind: "non_aggression_pact"; durationTicks: number }
+  | { kind: "trade_agreement"; durationTicks: number }
+  | { kind: "end_war"; truceTicks: number }
+  | {
+      kind: "gold_reparations";
+      payerID: PlayerID;
+      recipientID: PlayerID;
+      amount: number;
+      incidentID?: string;
+    };
+
+export interface DiplomaticProposal {
+  id: string;
+  rootProposalID: string;
+  parentProposalID?: string;
+  revision: number;
+  proposerID: PlayerID;
+  recipientID: PlayerID;
+  createdAt: Tick;
+  responseAfter: Tick;
+  expiresAt: Tick;
+  status: DiplomaticProposalStatus;
+  terms: DiplomaticTerm[];
+  /** Motifs persistants ayant conduit l'expéditeur à ouvrir la négociation. */
+  reasons: DiplomaticReason[];
+  settledAt?: Tick;
+}
+
+export interface DiplomaticValidationResult {
+  valid: boolean;
+  reasons: DiplomaticReason[];
+}
+
+export interface DiplomaticProposalEvaluation {
+  decision: "accept" | "reject" | "counter";
+  score: number;
+  threshold: number;
+  reasons: DiplomaticReason[];
+  counterTerms?: DiplomaticTerm[];
+}
+
+export interface DiplomaticProposalResult {
+  accepted: boolean;
+  proposal?: DiplomaticProposal;
+  reasons: DiplomaticReason[];
+}
+
 export type GovernmentStyle =
   | "hawkish"
   | "pragmatic"
@@ -1156,6 +1287,53 @@ export interface Game extends GameMap {
   config(): Config;
   isPaused(): boolean;
   setPaused(paused: boolean): void;
+
+  // Diplomacy+ proposals. GameImpl owns the registry; callers only use this
+  // narrow API so validation, evaluation and settlement remain centralized.
+  diplomaticProposalVersion(): number;
+  diplomaticProposalsFor(playerID: PlayerID): readonly DiplomaticProposal[];
+  diplomaticProposal(id: string): DiplomaticProposal | null;
+  createDiplomaticProposal(
+    proposer: Player,
+    recipient: Player,
+    terms: DiplomaticTerm[],
+    parentProposalID?: string,
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult;
+  acceptDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult;
+  rejectDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult;
+  withdrawDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+  ): DiplomaticProposalResult;
+  counterDiplomaticProposal(
+    actor: Player,
+    proposalID: string,
+    terms: DiplomaticTerm[],
+    reasons?: DiplomaticReason[],
+  ): DiplomaticProposalResult;
+  diplomaticStateHash(): number;
+  diplomaticIncidentsFor(playerID: PlayerID): readonly DiplomaticIncident[];
+  diplomaticIncident(id: string): DiplomaticIncident | null;
+  recordDiplomaticIncident(
+    type: DiplomaticIncidentType,
+    offender: Player,
+    victim: Player,
+    damages: number,
+    sourceUnitID?: number,
+  ): DiplomaticIncident | null;
+  updateDiplomaticIncidentDamages(id: string, damages: number): void;
+  protestDiplomaticIncident(actor: Player, id: string): boolean;
+  dismissDiplomaticIncident(actor: Player, id: string): boolean;
+  settleDiplomaticIncident(id: string, amount: number): void;
 
   // Units
   unit(id: number): Unit | undefined;
