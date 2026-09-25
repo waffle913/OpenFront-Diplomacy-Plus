@@ -1,3 +1,4 @@
+import type { NationalAgenda } from "../../../core/game/Game";
 import type { TileRef } from "../../../core/game/GameMap";
 
 /** TrainType enum — numeric values matching UnitState.trainType. */
@@ -115,6 +116,7 @@ export interface PlayerState {
     resourceAccess: "food" | "materials" | "fuel";
     preferredPartners: string[];
   };
+  nationalAgenda?: NationalAgenda;
   diplomaticRelations?: {
     otherID: string;
     opinion: number;
@@ -127,6 +129,10 @@ export interface PlayerState {
     createdAt: number;
     opinionImpact: number;
     trustImpact: number;
+    expiresAt: number;
+    severity: number;
+    occurrences: number;
+    regionID?: number;
   }[];
   tradeContracts?: {
     id: string;

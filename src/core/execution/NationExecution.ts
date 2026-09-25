@@ -218,6 +218,15 @@ export class NationExecution implements Execution {
 
   private maybeProposeTrade(): void {
     if (this.player === null) return;
+    this.player.refreshNationalAgenda();
+    const agenda = this.player.nationalAgenda();
+    const agendaResource = agenda.goals.find(
+      (goal) =>
+        goal.type === "find_trade_partner" ||
+        goal.type === "secure_food_supply" ||
+        goal.type === "secure_fuel_supply" ||
+        goal.type === "build_material_reserves",
+    )?.resource;
     const resources: StrategicResource[] = ["food", "materials", "fuel"];
     const production = this.mg.resourceProduction(this.player);
     const consumption = this.player.resourceConsumption();
@@ -230,7 +239,11 @@ export class NationExecution implements Execution {
           Math.max(0.1, consumption[resource]),
       }))
       .sort(
-        (a, b) => a.balance - b.balance || a.reserveMinutes - b.reserveMinutes,
+        (a, b) =>
+          (a.resource === agendaResource ? -1 : 0) -
+            (b.resource === agendaResource ? -1 : 0) ||
+          a.balance - b.balance ||
+          a.reserveMinutes - b.reserveMinutes,
       )[0];
     if (wanted.balance >= 0 && wanted.reserveMinutes >= 180) return;
     if (
@@ -256,10 +269,14 @@ export class NationExecution implements Execution {
           candidate.resources()[wanted.resource] >
             candidate.resourceConsumption()[wanted.resource] * 60,
       )
-      .sort(
-        (a, b) =>
-          b.resources()[wanted.resource] - a.resources()[wanted.resource],
-      )[0];
+      .sort((a, b) => {
+        const aRank = agenda.preferredPartners.indexOf(a.id());
+        const bRank = agenda.preferredPartners.indexOf(b.id());
+        return (
+          (aRank < 0 ? 99 : aRank) - (bRank < 0 ? 99 : bRank) ||
+          b.resources()[wanted.resource] - a.resources()[wanted.resource]
+        );
+      })[0];
     if (seller === undefined) return;
     const unitPrice: Record<StrategicResource, number> = {
       food: 10,

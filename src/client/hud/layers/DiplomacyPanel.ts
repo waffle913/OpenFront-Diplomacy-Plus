@@ -1,7 +1,12 @@
 import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { EventBus } from "../../../core/EventBus";
-import { isDiplomacyPlusParticipant, UnitType } from "../../../core/game/Game";
+import {
+  isDiplomacyPlusParticipant,
+  NationalConcernType,
+  NationalGoalType,
+  UnitType,
+} from "../../../core/game/Game";
 import {
   formatWorldDate,
   formatWorldDeadline,
@@ -35,6 +40,38 @@ const MENU_TABS: { id: CountryMenuTab; icon: string; label: string }[] = [
   { id: "crises", icon: "⚠", label: "Crises" },
   { id: "government", icon: "👑", label: "Gouvernement" },
 ];
+
+const GOAL_LABELS: Record<NationalGoalType, string> = {
+  secure_border: "Sécuriser la frontière",
+  protect_maritime_trade: "Protéger le commerce maritime",
+  secure_food_supply: "Sécuriser l'approvisionnement alimentaire",
+  secure_fuel_supply: "Obtenir du carburant",
+  build_material_reserves: "Augmenter les réserves de matériaux",
+  control_strategic_region: "Contrôler une région stratégique",
+  obtain_port: "Obtenir un port",
+  contain_rival: "Contenir une puissance rivale",
+  strengthen_alliance: "Renforcer les partenariats",
+  find_trade_partner: "Trouver un partenaire commercial",
+  recover_lost_territory: "Récupérer un territoire perdu",
+  avoid_costly_war: "Éviter une guerre trop coûteuse",
+  reduce_economic_dependence: "Réduire la dépendance économique",
+  build_national_reserves: "Constituer des réserves nationales",
+};
+
+const CONCERN_LABELS: Record<NationalConcernType, string> = {
+  food_insecurity: "Insécurité alimentaire",
+  fuel_shortage: "Pénurie de carburant",
+  materials_shortage: "Manque de matériaux",
+  military_vulnerability: "Vulnérabilité militaire",
+  naval_vulnerability: "Vulnérabilité navale",
+  commercial_dependence: "Dépendance commerciale",
+  powerful_neighbour: "Voisin puissant",
+  lost_territory: "Territoire perdu",
+  diplomatic_isolation: "Isolement diplomatique",
+  high_war_exhaustion: "Épuisement de guerre",
+  strategic_port_needed: "Port stratégique nécessaire",
+  trade_route_threatened: "Route commerciale menacée",
+};
 
 @customElement("diplomacy-panel")
 export class DiplomacyPanel extends LitElement implements Controller {
@@ -338,6 +375,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
 
   private renderCountry(player: PlayerView) {
     const interests = player.nationalInterests();
+    const agenda = player.nationalAgenda();
     const regions = this.game
       .historicalRegions()
       .map((region) => ({
@@ -403,6 +441,104 @@ export class DiplomacyPanel extends LitElement implements Controller {
                   .map((id) => this.playerName(id))
                   .join(", ")
               : "aucun"}
+          </div>
+        </div>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-3">
+        <div class="eu4-card">
+          <div class="eu4-title mb-2">Objectifs actuels</div>
+          ${agenda?.goals.length
+            ? agenda.goals.map(
+                (goal) =>
+                  html`<div class="mb-3 border-b border-white/5 pb-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <b>${GOAL_LABELS[goal.type]}</b>
+                      <span class="text-xs text-amber-300"
+                        >${goal.priority}/100</span
+                      >
+                    </div>
+                    <div class="mt-1 text-[11px] text-slate-400">
+                      ${goal.reason}
+                    </div>
+                  </div>`,
+              )
+            : html`<div class="text-sm text-slate-500">
+                Agenda en cours d'évaluation.
+              </div>`}
+        </div>
+        <div class="eu4-card">
+          <div class="eu4-title mb-2">Préoccupations</div>
+          ${agenda?.concerns.length
+            ? agenda.concerns.slice(0, 6).map(
+                (item) =>
+                  html`<div class="mb-3 border-b border-white/5 pb-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <b>${CONCERN_LABELS[item.type]}</b>
+                      <span
+                        class=${item.severity >= 70
+                          ? "text-xs text-red-300"
+                          : item.severity >= 40
+                            ? "text-xs text-amber-300"
+                            : "text-xs text-slate-300"}
+                        >${item.severity}/100</span
+                      >
+                    </div>
+                    <div class="mt-1 text-[11px] text-slate-400">
+                      ${item.reason}
+                    </div>
+                  </div>`,
+              )
+            : html`<div class="text-sm text-emerald-300">
+                Aucune préoccupation majeure.
+              </div>`}
+        </div>
+      </div>
+      <div class="eu4-card mt-3">
+        <div class="eu4-title mb-2">Intérêts stratégiques</div>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            ${agenda?.strategicRegions.length
+              ? agenda.strategicRegions.map((item) => {
+                  const region = this.game
+                    .historicalRegions()
+                    .find((candidate) => candidate.id === item.regionID);
+                  return html`<button
+                    class="mb-1 block w-full rounded bg-white/5 px-2 py-2 text-left hover:bg-white/10"
+                    @click=${() =>
+                      this.eventBus.emit(
+                        new ShowHistoricalRegionEvent(item.regionID),
+                      )}
+                  >
+                    <b>${region?.name ?? `Région ${item.regionID}`}</b>
+                    <span class="float-right text-amber-300"
+                      >${item.priority}</span
+                    >
+                    <div class="text-[11px] text-slate-400">${item.reason}</div>
+                  </button>`;
+                })
+              : html`<span class="text-slate-500"
+                  >Aucune région prioritaire.</span
+                >`}
+          </div>
+          <div class="space-y-2">
+            <div>
+              <span class="text-slate-400">Rivaux :</span>
+              <b>
+                ${agenda?.rivals.length
+                  ? agenda.rivals.map((id) => this.playerName(id)).join(", ")
+                  : "aucun"}</b
+              >
+            </div>
+            <div>
+              <span class="text-slate-400">Partenaires recherchés :</span>
+              <b>
+                ${agenda?.preferredPartners.length
+                  ? agenda.preferredPartners
+                      .map((id) => this.playerName(id))
+                      .join(", ")
+                  : "aucun"}</b
+              >
+            </div>
           </div>
         </div>
       </div>

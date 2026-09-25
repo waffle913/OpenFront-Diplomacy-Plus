@@ -119,6 +119,20 @@ export class DiplomacyPlusExecution implements Execution {
             .outgoingAttacks()
             .some((attack) => attack.target() === this.actor);
         if (!atWar || target.type() !== PlayerType.Nation) return;
+        if (this.action === "demand_reparations") {
+          this.actor.rememberDiplomaticEvent(
+            target,
+            "reparations_requested",
+            -2,
+            -2,
+          );
+          target.rememberDiplomaticEvent(
+            this.actor,
+            "reparations_requested",
+            -8,
+            -8,
+          );
+        }
         const leverage = this.actor.troops() / Math.max(1, target.troops());
         const exhausted =
           target.resources().food <= 0 || target.resources().fuel <= 0;
@@ -133,7 +147,27 @@ export class DiplomacyPlusExecution implements Execution {
             target.gold() < 500n ? target.gold() : 500n,
           );
           this.actor.addGold(reparations);
+          this.actor.rememberDiplomaticEvent(target, "reparations_paid", 8, 6);
+          target.rememberDiplomaticEvent(
+            this.actor,
+            "reparations_paid",
+            -4,
+            -2,
+          );
           this.actor.concludePeaceWith(target, 1800);
+        } else {
+          this.actor.rememberDiplomaticEvent(
+            target,
+            "reparations_refused",
+            -10,
+            -10,
+          );
+          target.rememberDiplomaticEvent(
+            this.actor,
+            "reparations_refused",
+            -5,
+            -5,
+          );
         }
         return;
       }

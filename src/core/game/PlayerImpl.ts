@@ -22,6 +22,7 @@ import {
   ColoredTeams,
   DiplomaticCrisis,
   DiplomaticMemory,
+  DiplomaticMemoryOptions,
   DiplomaticMemoryType,
   DisconnectSnapshot,
   Embargo,
@@ -34,6 +35,7 @@ import {
   isDiplomacyPlusParticipant,
   MAX_UPGRADE_AMOUNT,
   MutableAlliance,
+  NationalAgenda,
   NationalInterests,
   Player,
   PlayerBuildable,
@@ -69,6 +71,7 @@ import {
   GameUpdateType,
   PlayerUpdate,
 } from "./GameUpdates";
+import { buildNationalAgenda } from "./NationalAgenda";
 import { ReadonlyTileSet, TileSet } from "./TileSet";
 import {
   bumpTraversalGeneration,
@@ -108,6 +111,56 @@ const EMPTY_ATTACK_UPDATES: AttackUpdate[] = [];
 const EMPTY_ALLIANCE_VIEWS: AllianceView[] = [];
 const EMPTY_EMOJIS: EmojiMessage[] = [];
 const EMPTY_EMBARGOES = new Set<string>();
+const EMPTY_NATIONAL_AGENDA: NationalAgenda = {
+  generatedAt: 0,
+  reevaluateAt: 0,
+  goals: [],
+  concerns: [],
+  strategicRegions: [],
+  rivals: [],
+  preferredPartners: [],
+};
+
+function diplomaticMemoryPolicy(type: DiplomaticMemoryType): {
+  durationTicks: number;
+  severity: number;
+  aggregates: boolean;
+} {
+  switch (type) {
+    case "trade_started":
+    case "trade_completed":
+    case "trade_failed":
+    case "economic_aid":
+    case "joint_project":
+      return { durationTicks: 1800, severity: 20, aggregates: false };
+    case "nap_signed":
+    case "guarantee_given":
+    case "guarantee_withdrawn":
+    case "peace_signed":
+    case "crisis_complied":
+    case "mediation_accepted":
+    case "territory_returned":
+      return { durationTicks: 3600, severity: 35, aggregates: false };
+    case "nap_broken":
+    case "crisis_refused":
+    case "trade_ship_seized":
+    case "trade_ship_destroyed":
+    case "reparations_requested":
+    case "reparations_refused":
+    case "mediation_refused":
+    case "sanctions_imposed":
+      return { durationTicks: 7200, severity: 60, aggregates: true };
+    case "war_started":
+    case "territory_lost":
+    case "truce_broken":
+    case "unjustified_war":
+    case "international_condemnation":
+    case "resolution_ignored":
+      return { durationTicks: 12000, severity: 85, aggregates: true };
+    case "reparations_paid":
+      return { durationTicks: 4800, severity: 45, aggregates: false };
+  }
+}
 // Reusable buffers for hot loops. The simulation is single-threaded and these
 // are fully consumed before any re-entrant call, so sharing is safe.
 const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
@@ -192,6 +245,7 @@ export class PlayerImpl implements Player {
   private relations = new Map<Player, number>();
   private diplomaticTrust = new Map<PlayerID, number>();
   private diplomaticMemory: DiplomaticMemory[] = [];
+  private lastMemoryPruneEpoch = -1;
   private casusBelli = new Map<PlayerID, CasusBelli>();
   private warAuthorizations = new Map<PlayerID, Tick>();
   // Diplomacy+ V1.3: why this war is being fought. Kept separate from the CB,
@@ -217,6 +271,7 @@ export class PlayerImpl implements Player {
   private cachedNationalInterests:
     | { epoch: number; value: NationalInterests }
     | undefined;
+  private nationalAgenda_: NationalAgenda | undefined;
   private cachedDiplomaticRelations:
     | {
         epoch: number;
@@ -604,11 +659,12 @@ export class PlayerImpl implements Player {
       nationalInterests: diplomacyPlusEnabled
         ? this.nationalInterests()
         : undefined,
+      nationalAgenda: diplomacyPlusEnabled ? this.nationalAgenda() : undefined,
       diplomaticRelations: diplomacyPlusEnabled
         ? diplomaticRelations
         : undefined,
       diplomaticMemories: diplomacyPlusEnabled
-        ? this.diplomaticMemory.map((memory) => ({ ...memory }))
+        ? this.diplomaticMemories().map((memory) => ({ ...memory }))
         : undefined,
       tradeContracts: diplomacyPlusEnabled
         ? Array.from(this.tradeContracts_.values(), (contract) => ({
@@ -1222,21 +1278,105 @@ export class PlayerImpl implements Player {
     type: DiplomaticMemoryType,
     opinionImpact: number,
     trustImpact: number,
+    options: DiplomaticMemoryOptions = {},
   ): void {
     if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
       return;
+    this.pruneDiplomaticMemories();
+    const policy = diplomaticMemoryPolicy(type);
+    const now = this.mg.ticks();
+    if (policy.aggregates) {
+      const existing = this.diplomaticMemory.find(
+        (memory) =>
+          memory.otherID === other.id() &&
+          memory.type === type &&
+          memory.regionID === options.regionID,
+      );
+      if (existing !== undefined) {
+        existing.createdAt = now;
+        existing.expiresAt = Math.max(
+          existing.expiresAt,
+          now + (options.durationTicks ?? policy.durationTicks),
+        );
+        existing.severity = within(
+          Math.max(existing.severity, options.severity ?? policy.severity) + 8,
+          0,
+          100,
+        );
+        existing.occurrences++;
+        existing.opinionImpact = within(
+          existing.opinionImpact + opinionImpact,
+          -100,
+          100,
+        );
+        existing.trustImpact = within(
+          existing.trustImpact + trustImpact,
+          -100,
+          100,
+        );
+        return;
+      }
+    }
     this.diplomaticMemory.push({
       otherID: other.id(),
       type,
-      createdAt: this.mg.ticks(),
+      createdAt: now,
       opinionImpact,
       trustImpact,
+      expiresAt: now + (options.durationTicks ?? policy.durationTicks),
+      severity: within(options.severity ?? policy.severity, 0, 100),
+      occurrences: 1,
+      regionID: options.regionID,
     });
-    if (this.diplomaticMemory.length > 24) this.diplomaticMemory.shift();
+    if (this.diplomaticMemory.length > 24) {
+      let removable = 0;
+      for (let i = 1; i < this.diplomaticMemory.length; i++) {
+        const candidate = this.diplomaticMemory[i];
+        const current = this.diplomaticMemory[removable];
+        if (
+          candidate.severity < current.severity ||
+          (candidate.severity === current.severity &&
+            candidate.createdAt < current.createdAt)
+        ) {
+          removable = i;
+        }
+      }
+      this.diplomaticMemory.splice(removable, 1);
+    }
   }
 
   diplomaticMemories(): readonly DiplomaticMemory[] {
+    this.pruneDiplomaticMemories();
     return this.diplomaticMemory;
+  }
+
+  private pruneDiplomaticMemories(): void {
+    const epoch = Math.floor(this.mg.ticks() / 100);
+    if (epoch === this.lastMemoryPruneEpoch) return;
+    this.lastMemoryPruneEpoch = epoch;
+    const now = this.mg.ticks();
+    this.diplomaticMemory = this.diplomaticMemory.filter(
+      (memory) => memory.expiresAt > now,
+    );
+  }
+
+  grievanceScore(other: Player): number {
+    return within(
+      this.diplomaticMemories()
+        .filter(
+          (memory) =>
+            memory.otherID === other.id() &&
+            (memory.opinionImpact < 0 || memory.trustImpact < 0),
+        )
+        .reduce(
+          (score, memory) =>
+            score +
+            memory.severity * Math.min(2, 0.75 + memory.occurrences * 0.25),
+          0,
+        ),
+      0,
+      100,
+    );
   }
 
   private relationFromValue(relationValue: number): Relation {
@@ -1441,6 +1581,7 @@ export class PlayerImpl implements Player {
 
   breakNonAggressionPact(other: Player): void {
     const wasActive = this.nonAggressionPactWith(other) !== null;
+    const brokeTruce = this.truceWith(other) !== null;
     this.postWarTruces.delete(other.id());
     (other as PlayerImpl).postWarTruces.delete(this.id());
     this.nonAggressionPacts.delete(other.id());
@@ -1451,6 +1592,12 @@ export class PlayerImpl implements Player {
       other.changeTrust(this, -30);
       this.rememberDiplomaticEvent(other, "nap_broken", -15, -30);
       other.rememberDiplomaticEvent(this, "nap_broken", -25, -30);
+      if (brokeTruce) {
+        other.rememberDiplomaticEvent(this, "truce_broken", -35, -40, {
+          severity: 95,
+          durationTicks: 12000,
+        });
+      }
     }
   }
 
@@ -2210,6 +2357,8 @@ export class PlayerImpl implements Player {
     target.updateRelation(issuer, 5);
     issuer.changeTrust(this, 2);
     target.changeTrust(this, 2);
+    issuer.rememberDiplomaticEvent(this, "mediation_accepted", 5, 4);
+    target.rememberDiplomaticEvent(this, "mediation_accepted", 5, 4);
     return true;
   }
 
@@ -2379,6 +2528,26 @@ export class PlayerImpl implements Player {
     };
     this.cachedNationalInterests = { epoch, value };
     return value;
+  }
+
+  nationalAgenda(): NationalAgenda {
+    return this.nationalAgenda_ ?? EMPTY_NATIONAL_AGENDA;
+  }
+
+  refreshNationalAgenda(force = false): void {
+    if (!isDiplomacyPlusParticipant(this) || !this.isAlive()) return;
+    if (
+      !force &&
+      this.nationalAgenda_ !== undefined &&
+      this.mg.ticks() < this.nationalAgenda_.reevaluateAt
+    ) {
+      return;
+    }
+    this.nationalAgenda_ = buildNationalAgenda(
+      this.mg,
+      this,
+      this.nationalAgenda_,
+    );
   }
 
   troops(): number {

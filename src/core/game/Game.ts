@@ -348,7 +348,21 @@ export type DiplomaticMemoryType =
   | "economic_aid"
   | "joint_project"
   | "crisis_complied"
-  | "crisis_refused";
+  | "crisis_refused"
+  | "trade_ship_seized"
+  | "trade_ship_destroyed"
+  | "reparations_requested"
+  | "reparations_paid"
+  | "reparations_refused"
+  | "mediation_accepted"
+  | "mediation_refused"
+  | "territory_lost"
+  | "territory_returned"
+  | "truce_broken"
+  | "unjustified_war"
+  | "international_condemnation"
+  | "sanctions_imposed"
+  | "resolution_ignored";
 
 export interface DiplomaticMemory {
   otherID: PlayerID;
@@ -356,6 +370,16 @@ export interface DiplomaticMemory {
   createdAt: Tick;
   opinionImpact: number;
   trustImpact: number;
+  expiresAt: Tick;
+  severity: number;
+  occurrences: number;
+  regionID?: number;
+}
+
+export interface DiplomaticMemoryOptions {
+  durationTicks?: number;
+  severity?: number;
+  regionID?: number;
 }
 
 export type StrategicResource = "food" | "materials" | "fuel";
@@ -418,6 +442,75 @@ export interface NationalInterests {
   security: number;
   expansion: number;
   resourceAccess: StrategicResource;
+  preferredPartners: PlayerID[];
+}
+
+export type NationalConcernType =
+  | "food_insecurity"
+  | "fuel_shortage"
+  | "materials_shortage"
+  | "military_vulnerability"
+  | "naval_vulnerability"
+  | "commercial_dependence"
+  | "powerful_neighbour"
+  | "lost_territory"
+  | "diplomatic_isolation"
+  | "high_war_exhaustion"
+  | "strategic_port_needed"
+  | "trade_route_threatened";
+
+export interface NationalConcern {
+  type: NationalConcernType;
+  severity: number;
+  since: Tick;
+  lastEvaluatedAt: Tick;
+  reason: string;
+  resource?: StrategicResource;
+  targetID?: PlayerID;
+  regionID?: number;
+}
+
+export type NationalGoalType =
+  | "secure_border"
+  | "protect_maritime_trade"
+  | "secure_food_supply"
+  | "secure_fuel_supply"
+  | "build_material_reserves"
+  | "control_strategic_region"
+  | "obtain_port"
+  | "contain_rival"
+  | "strengthen_alliance"
+  | "find_trade_partner"
+  | "recover_lost_territory"
+  | "avoid_costly_war"
+  | "reduce_economic_dependence"
+  | "build_national_reserves";
+
+export interface NationalAgendaGoal {
+  id: string;
+  type: NationalGoalType;
+  priority: number;
+  createdAt: Tick;
+  expiresAt: Tick;
+  reason: string;
+  resource?: StrategicResource;
+  targetID?: PlayerID;
+  regionID?: number;
+}
+
+export interface StrategicRegionInterest {
+  regionID: number;
+  priority: number;
+  reason: string;
+}
+
+export interface NationalAgenda {
+  generatedAt: Tick;
+  reevaluateAt: Tick;
+  goals: NationalAgendaGoal[];
+  concerns: NationalConcern[];
+  strategicRegions: StrategicRegionInterest[];
+  rivals: PlayerID[];
   preferredPartners: PlayerID[];
 }
 
@@ -780,6 +873,8 @@ export interface Player {
   setMobilizationTarget(percent: number): void;
   governmentProfile(): GovernmentProfile;
   nationalInterests(): NationalInterests;
+  nationalAgenda(): NationalAgenda;
+  refreshNationalAgenda(force?: boolean): void;
 
   // Cumulative trade revenue, surfaced on the live PlayerUpdate so clients can
   // compute per-source gold rates (leaderboard "Ship/Train Trade Gold/min").
@@ -852,8 +947,10 @@ export interface Player {
     type: DiplomaticMemoryType,
     opinionImpact: number,
     trustImpact: number,
+    options?: DiplomaticMemoryOptions,
   ): void;
   diplomaticMemories(): readonly DiplomaticMemory[];
+  grievanceScore(other: Player): number;
   decayRelations(): void;
   casusBelliAgainst(other: Player): CasusBelli | null;
   grantCasusBelli(

@@ -129,6 +129,18 @@ function stateFromUpdate(pu: PlayerUpdate): PlayerState {
       resourceAccess: "food",
       preferredPartners: [],
     },
+    nationalAgenda: pu.nationalAgenda
+      ? {
+          ...pu.nationalAgenda,
+          goals: pu.nationalAgenda.goals.map((goal) => ({ ...goal })),
+          concerns: pu.nationalAgenda.concerns.map((item) => ({ ...item })),
+          strategicRegions: pu.nationalAgenda.strategicRegions.map((item) => ({
+            ...item,
+          })),
+          rivals: pu.nationalAgenda.rivals.slice(),
+          preferredPartners: pu.nationalAgenda.preferredPartners.slice(),
+        }
+      : undefined,
     diplomaticRelations: pu.diplomaticRelations?.slice() ?? [],
     diplomaticMemories: pu.diplomaticMemories?.slice() ?? [],
     tradeContracts: pu.tradeContracts?.slice() ?? [],
@@ -801,6 +813,9 @@ export class PlayerView {
   }
   nationalInterests() {
     return this.state.nationalInterests!;
+  }
+  nationalAgenda() {
+    return this.state.nationalAgenda;
   }
   diplomaticRelations() {
     return this.state.diplomaticRelations ?? [];

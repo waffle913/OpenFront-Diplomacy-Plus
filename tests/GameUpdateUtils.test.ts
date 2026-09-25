@@ -82,12 +82,51 @@ describe("diffPlayerUpdate", () => {
           createdAt: 10,
           opinionImpact: 10,
           trustImpact: 10,
+          expiresAt: 3610,
+          severity: 35,
+          occurrences: 1,
         },
       ],
     });
     const diff = diffPlayerUpdate(prev, next)!;
     expect(diff.diplomaticRelations).toEqual(next.diplomaticRelations);
     expect(diff.diplomaticMemories).toEqual(next.diplomaticMemories);
+  });
+
+  it("transmits a replaced national agenda", () => {
+    const agenda = {
+      generatedAt: 100,
+      reevaluateAt: 1000,
+      goals: [
+        {
+          id: "a:secure_fuel_supply:fuel::",
+          type: "secure_fuel_supply" as const,
+          priority: 90,
+          createdAt: 100,
+          expiresAt: 3700,
+          reason: "Fuel reserves are critically low",
+          resource: "fuel" as const,
+        },
+      ],
+      concerns: [
+        {
+          type: "fuel_shortage" as const,
+          severity: 90,
+          since: 100,
+          lastEvaluatedAt: 100,
+          reason: "Fuel reserves are critically low",
+          resource: "fuel" as const,
+        },
+      ],
+      strategicRegions: [],
+      rivals: [],
+      preferredPartners: ["b"],
+    };
+    const diff = diffPlayerUpdate(
+      makePlayerUpdate(),
+      makePlayerUpdate({ nationalAgenda: agenda }),
+    );
+    expect(diff?.nationalAgenda).toEqual(agenda);
   });
 
   it("transmits consumption and shortage changes", () => {

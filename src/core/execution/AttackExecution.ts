@@ -342,6 +342,13 @@ export class AttackExecution implements Execution {
           }
           this._owner.changeThreat(20);
           this._owner.changeReputation(-15);
+          targetPlayer.rememberDiplomaticEvent(
+            this._owner,
+            "unjustified_war",
+            -35,
+            -30,
+            { severity: 90, durationTicks: 12000 },
+          );
 
           // The victim always gains a retaliation CB. Other states react
           // individually: friends of the victim care more, friends of the
@@ -706,6 +713,17 @@ export class AttackExecution implements Execution {
           // restart the same conflict.
           this._owner.changeThreat(-2);
           this._owner.changeReputation(2);
+          targetPlayer.rememberDiplomaticEvent(
+            this._owner,
+            "territory_lost",
+            -25,
+            -20,
+            {
+              regionID: this.claimedRegionID,
+              severity: 85,
+              durationTicks: 12000,
+            },
+          );
           this._owner.concludePeaceWith(targetPlayer, 1200);
           this.retreat();
           return;

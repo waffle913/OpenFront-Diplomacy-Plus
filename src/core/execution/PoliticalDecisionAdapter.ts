@@ -58,6 +58,7 @@ export interface PoliticalSnapshot {
   memories: ReturnType<Player["diplomaticMemories"]>;
   contracts: ReturnType<Player["tradeContracts"]>;
   crises: ReturnType<Player["diplomaticCrises"]>;
+  agenda: ReturnType<Player["nationalAgenda"]>;
 }
 
 export interface PoliticalDecisionResult {
@@ -72,6 +73,7 @@ export function buildPoliticalSnapshot(
   if (!isDiplomacyPlusParticipant(player)) {
     throw new Error("Diplomacy+ snapshots are unavailable for tribes");
   }
+  player.refreshNationalAgenda();
   return {
     tick: game.ticks(),
     country: {
@@ -101,6 +103,7 @@ export function buildPoliticalSnapshot(
     memories: player.diplomaticMemories().map((memory) => ({ ...memory })),
     contracts: player.tradeContracts().map((contract) => ({ ...contract })),
     crises: player.diplomaticCrises().map((crisis) => ({ ...crisis })),
+    agenda: player.nationalAgenda(),
   };
 }
 

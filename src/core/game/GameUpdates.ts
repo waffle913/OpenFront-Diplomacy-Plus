@@ -5,6 +5,7 @@ import {
   Gold,
   MessageType,
   NameViewData,
+  NationalAgenda,
   NukeState,
   PlayerID,
   PlayerType,
@@ -323,6 +324,7 @@ export interface PlayerUpdate {
     resourceAccess: "food" | "materials" | "fuel";
     preferredPartners: PlayerID[];
   };
+  nationalAgenda?: NationalAgenda;
   diplomaticRelations?: {
     otherID: PlayerID;
     opinion: number;
@@ -335,6 +337,10 @@ export interface PlayerUpdate {
     createdAt: Tick;
     opinionImpact: number;
     trustImpact: number;
+    expiresAt: Tick;
+    severity: number;
+    occurrences: number;
+    regionID?: number;
   }[];
   tradeContracts?: {
     id: string;

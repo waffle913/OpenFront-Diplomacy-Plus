@@ -54,6 +54,14 @@ export class PlayerExecution implements Execution {
       this.player.decayRelations();
     }
     if (diplomacyPlusEnabled) this.player.processDiplomaticCrises();
+    if (
+      diplomacyPlusEnabled &&
+      !this.mg.inSpawnPhase() &&
+      this.mg.ticksSinceStart() >= WORLD_FORMATION_UNLOCK_TICK &&
+      ticks % 100 === this.player.smallID() % 100
+    ) {
+      this.player.refreshNationalAgenda();
+    }
     for (const u of this.player.units()) {
       if (!Structures.has(u.type())) {
         continue;

@@ -79,6 +79,7 @@ export function diffPlayerUpdate(
     prev.militaryCapacity === next.militaryCapacity &&
     governmentProfileEqual(prev.governmentProfile, next.governmentProfile) &&
     nationalInterestsEqual(prev.nationalInterests, next.nationalInterests) &&
+    prev.nationalAgenda === next.nationalAgenda &&
     diplomaticRelationArrayEqual(
       prev.diplomaticRelations,
       next.diplomaticRelations,
@@ -212,6 +213,7 @@ export function diffPlayerUpdate(
     "nationalInterests",
     nationalInterestsEqual(prev.nationalInterests, next.nationalInterests),
   );
+  setIfDifferent("nationalAgenda", prev.nationalAgenda === next.nationalAgenda);
   setIfDifferent(
     "diplomaticRelations",
     diplomaticRelationArrayEqual(
@@ -358,6 +360,17 @@ export function applyStateUpdate(target: PlayerState, pu: PlayerUpdate): void {
     target.nationalInterests = {
       ...pu.nationalInterests,
       preferredPartners: pu.nationalInterests.preferredPartners.slice(),
+    };
+  if (pu.nationalAgenda !== undefined)
+    target.nationalAgenda = {
+      ...pu.nationalAgenda,
+      goals: pu.nationalAgenda.goals.map((goal) => ({ ...goal })),
+      concerns: pu.nationalAgenda.concerns.map((item) => ({ ...item })),
+      strategicRegions: pu.nationalAgenda.strategicRegions.map((item) => ({
+        ...item,
+      })),
+      rivals: pu.nationalAgenda.rivals.slice(),
+      preferredPartners: pu.nationalAgenda.preferredPartners.slice(),
     };
   if (pu.diplomaticRelations !== undefined) {
     target.diplomaticRelations = pu.diplomaticRelations.slice();
@@ -518,20 +531,8 @@ function diplomaticRelationArrayEqual(
 }
 
 function diplomaticMemoryArrayEqual(
-  a?: {
-    otherID: string;
-    type: string;
-    createdAt: number;
-    opinionImpact: number;
-    trustImpact: number;
-  }[],
-  b?: {
-    otherID: string;
-    type: string;
-    createdAt: number;
-    opinionImpact: number;
-    trustImpact: number;
-  }[],
+  a?: NonNullable<PlayerUpdate["diplomaticMemories"]>,
+  b?: NonNullable<PlayerUpdate["diplomaticMemories"]>,
 ): boolean {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
@@ -541,7 +542,11 @@ function diplomaticMemoryArrayEqual(
       a[i].type !== b[i].type ||
       a[i].createdAt !== b[i].createdAt ||
       a[i].opinionImpact !== b[i].opinionImpact ||
-      a[i].trustImpact !== b[i].trustImpact
+      a[i].trustImpact !== b[i].trustImpact ||
+      a[i].expiresAt !== b[i].expiresAt ||
+      a[i].severity !== b[i].severity ||
+      a[i].occurrences !== b[i].occurrences ||
+      a[i].regionID !== b[i].regionID
     ) {
       return false;
     }

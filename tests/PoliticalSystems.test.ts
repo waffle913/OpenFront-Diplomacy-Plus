@@ -131,6 +131,91 @@ describe("national mobilization", () => {
   });
 });
 
+describe("persistent national agenda", () => {
+  it("keeps two to four understandable goals stable between reviews", () => {
+    actor.refreshNationalAgenda(true);
+    const first = actor.nationalAgenda();
+    expect(first.goals.length).toBeGreaterThanOrEqual(2);
+    expect(first.goals.length).toBeLessThanOrEqual(4);
+    expect(first.goals.every((goal) => goal.reason.length > 10)).toBe(true);
+
+    const originalTick = game.ticks();
+    vi.spyOn(game, "ticks").mockReturnValue(originalTick + 300);
+    actor.refreshNationalAgenda(true);
+    const second = actor.nationalAgenda();
+    for (const goal of second.goals) {
+      const previous = first.goals.find(
+        (candidate) => candidate.id === goal.id,
+      );
+      if (previous !== undefined)
+        expect(goal.createdAt).toBe(previous.createdAt);
+    }
+  });
+
+  it("responds to a fuel shortage with trade before territorial aggression", () => {
+    actor.addResources({ food: 0, materials: 0, fuel: -10_000 });
+    actor.refreshNationalAgenda(true);
+    const agenda = actor.nationalAgenda();
+    expect(
+      agenda.concerns.some((concern) => concern.type === "fuel_shortage"),
+    ).toBe(true);
+    expect(
+      agenda.goals.some(
+        (goal) =>
+          goal.type === "secure_fuel_supply" && goal.resource === "fuel",
+      ),
+    ).toBe(true);
+    expect(
+      agenda.goals.some(
+        (goal) =>
+          goal.type === "find_trade_partner" && goal.resource === "fuel",
+      ),
+    ).toBe(true);
+    expect(
+      agenda.goals.some((goal) => goal.type === "recover_lost_territory"),
+    ).toBe(false);
+  });
+
+  it("identifies a stronger neighbouring country as a persistent concern", () => {
+    target.addTroops(250_000);
+    actor.refreshNationalAgenda(true);
+    const agenda = actor.nationalAgenda();
+    expect(agenda.rivals).toContain(target.id());
+    expect(agenda.concerns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "powerful_neighbour",
+          targetID: target.id(),
+        }),
+      ]),
+    );
+  });
+});
+
+describe("durable diplomatic grievances", () => {
+  it("aggregates repeated serious offenses and expires short memories", () => {
+    actor.rememberDiplomaticEvent(target, "unjustified_war", -30, -30, {
+      durationTicks: 1000,
+      severity: 80,
+    });
+    actor.rememberDiplomaticEvent(target, "unjustified_war", -30, -30, {
+      durationTicks: 1000,
+      severity: 80,
+    });
+    const grievance = actor
+      .diplomaticMemories()
+      .find((memory) => memory.type === "unjustified_war");
+    expect(grievance?.occurrences).toBe(2);
+    expect(grievance?.severity).toBeGreaterThan(80);
+    expect(actor.grievanceScore(target)).toBeGreaterThanOrEqual(80);
+
+    const originalTick = game.ticks();
+    vi.spyOn(game, "ticks").mockReturnValue(originalTick + 1100);
+    expect(actor.diplomaticMemories()).toHaveLength(0);
+    expect(actor.grievanceScore(target)).toBe(0);
+  });
+});
+
 describe("negotiated peace and crisis exits", () => {
   it("charges reparations and creates a longer bilateral truce", () => {
     actor.authorizeWarAgainst(target);
@@ -146,6 +231,16 @@ describe("negotiated peace and crisis exits", () => {
     expect(actor.gold()).toBe(actorGold + 500n);
     expect(actor.truceWith(target)).toBe(game.ticks() + 1800);
     expect(target.truceWith(actor)).toBe(game.ticks() + 1800);
+    expect(
+      actor
+        .diplomaticMemories()
+        .some((memory) => memory.type === "reparations_paid"),
+    ).toBe(true);
+    expect(
+      target
+        .diplomaticMemories()
+        .some((memory) => memory.type === "reparations_requested"),
+    ).toBe(true);
   });
 
   it("lets a crisis target pay a concession before the deadline", () => {
@@ -163,6 +258,7 @@ describe("optional political decision adapter", () => {
     const snapshot = buildPoliticalSnapshot(game, actor);
     expect(snapshot.country.id).toBe(actor.id());
     expect(snapshot.country.resources).toEqual(actor.resources());
+    expect(snapshot.agenda.goals.length).toBeGreaterThanOrEqual(2);
     expect(snapshot.relations[0]).toEqual(
       expect.objectContaining({ otherID: target.id(), canTrade: true }),
     );
