@@ -16,16 +16,24 @@ import {
   AllPlayers,
   Attack,
   BuildableUnit,
+  CasusBelli,
+  CasusBelliType,
   Cell,
   ColoredTeams,
+  DiplomaticCrisis,
+  DiplomaticMemory,
+  DiplomaticMemoryType,
   DisconnectSnapshot,
   Embargo,
   EmojiMessage,
   GameMode,
   GameType,
   Gold,
+  GovernmentProfile,
+  GovernmentStyle,
   MAX_UPGRADE_AMOUNT,
   MutableAlliance,
+  NationalInterests,
   Player,
   PlayerBuildable,
   PlayerBuildableUnitType,
@@ -34,10 +42,14 @@ import {
   PlayerProfile,
   PlayerType,
   Relation,
+  StrategicResource,
+  StrategicResources,
   Structures,
+  TaxPolicy,
   Team,
   TerraNullius,
   Tick,
+  TradeContract,
   Unit,
   UnitParams,
   UnitType,
@@ -118,6 +130,16 @@ export class PlayerImpl implements Player {
 
   private _gold: bigint;
   private _troops: bigint;
+  // Diplomacy+ V1.16 strategic-resource stocks. Production is territorial and
+  // computed by GameImpl; military consumption is intentionally deferred.
+  private _food = 250;
+  private _materials = 180;
+  private _fuel = 90;
+  private static readonly RESOURCE_CAP = 5000;
+  private tradeContracts_ = new Map<string, TradeContract>();
+  private lastEconomicAid = new Map<PlayerID, Tick>();
+  private lastJointProject = new Map<PlayerID, Tick>();
+  private diplomaticCrises_ = new Map<string, DiplomaticCrisis>();
 
   /** Cumulative ship-trade revenue (arrival credit for src + dst port owners). */
   private _tradeGold: bigint = 0n;
@@ -167,6 +189,45 @@ export class PlayerImpl implements Player {
   private sentDonations: Donation[] = [];
 
   private relations = new Map<Player, number>();
+  private diplomaticTrust = new Map<PlayerID, number>();
+  private diplomaticMemory: DiplomaticMemory[] = [];
+  private casusBelli = new Map<PlayerID, CasusBelli>();
+  private warAuthorizations = new Map<PlayerID, Tick>();
+  // Diplomacy+ V1.3: why this war is being fought. Kept separate from the CB,
+  // because the CB is consumed when hostilities begin.
+  private warGoals = new Map<PlayerID, CasusBelliType>();
+  // Diplomacy+ V1.11: persistent geographic objective for a regional war.
+  // AttackExecution instances are only individual offensives; this survives
+  // their retreat so later offensives continue toward the same region.
+  private warGoalRegions = new Map<PlayerID, number>();
+  // Diplomacy+ V1.15: defender control when a regional war goal is fixed.
+  // This lets the UI expose objective progress / war score independently of individual charges.
+  private warGoalInitialTargetTiles = new Map<PlayerID, number>();
+  private nonAggressionPacts = new Map<PlayerID, Tick>();
+  private tradeAgreements = new Map<PlayerID, Tick>();
+  private postWarTruces = new Map<PlayerID, Tick>();
+  private guarantees_ = new Set<PlayerID>();
+  private _threat = 0;
+  private _reputation = 100;
+  private _stability = 70;
+  private _publicSatisfaction = 65;
+  private _taxPolicy: TaxPolicy = "normal";
+  private _mobilizationTarget = 100;
+  private cachedNationalInterests:
+    | { epoch: number; value: NationalInterests }
+    | undefined;
+  private cachedDiplomaticRelations:
+    | {
+        epoch: number;
+        value: NonNullable<PlayerUpdate["diplomaticRelations"]>;
+      }
+    | undefined;
+  private cachedWarGoals:
+    | { epoch: number; value: NonNullable<PlayerUpdate["warGoals"]> }
+    | undefined;
+  private _governmentStyle: GovernmentStyle;
+  private _governmentGeneration = 1;
+  private _governmentTermEndsAt: Tick;
 
   private lastDeleteUnitTick: Tick = -1;
   private lastEmbargoAllTick: Tick = -1;
@@ -198,6 +259,16 @@ export class PlayerImpl implements Player {
     this._troops = toInt(startTroops);
     this._gold = mg.config().startingGold(playerInfo);
     this._pseudo_random = new PseudoRandom(simpleHash(this.playerInfo.id));
+    const styles: GovernmentStyle[] = [
+      "hawkish",
+      "pragmatic",
+      "cooperative",
+      "cautious",
+    ];
+    this._governmentStyle =
+      styles[Math.abs(simpleHash(this.playerInfo.id)) % styles.length];
+    this._governmentTermEndsAt =
+      mg.ticks() + 3600 + (Math.abs(simpleHash(this.playerInfo.id)) % 1200);
   }
 
   largestClusterBoundingBox: { min: Cell; max: Cell } | null;
@@ -356,6 +427,94 @@ export class PlayerImpl implements Player {
     // (set live in the sim via mg.stats()), surfaced here so it rides the live
     // PlayerUpdate every tick rather than only appearing in the game-end record.
     const deathStats = this.mg.stats().getPlayerStats(this);
+    const production = this.mg.resourceProduction(this);
+    const consumption = this.resourceConsumption();
+    const relationEpoch = Math.floor(this.mg.ticks() / 10);
+    let diplomaticRelations = this.cachedDiplomaticRelations?.value;
+    if (
+      diplomaticRelations === undefined ||
+      this.cachedDiplomaticRelations?.epoch !== relationEpoch
+    ) {
+      const relationPlayers = new Set<Player>();
+      for (const other of this.relations.keys()) relationPlayers.add(other);
+      for (const otherID of this.diplomaticTrust.keys()) {
+        if (this.mg.hasPlayer(otherID))
+          relationPlayers.add(this.mg.player(otherID));
+      }
+      for (const memory of this.diplomaticMemory) {
+        if (this.mg.hasPlayer(memory.otherID))
+          relationPlayers.add(this.mg.player(memory.otherID));
+      }
+      const borderingSmallIDs = new Set<number>();
+      const map = this.mg.map();
+      const nbuf: TileRef[] = [0, 0, 0, 0];
+      for (const border of this._borderTiles) {
+        const count = map.neighbors4(border, nbuf);
+        for (let i = 0; i < count; i++) {
+          const ownerID = map.ownerID(nbuf[i]);
+          if (ownerID !== this.smallID()) borderingSmallIDs.add(ownerID);
+        }
+      }
+      diplomaticRelations = Array.from(relationPlayers)
+        .filter((other) => other.isAlive())
+        .map((other) => ({
+          otherID: other.id(),
+          opinion: this.relationScore(other),
+          trust: this.trust(other),
+          perceivedThreat: this.perceivedThreat(
+            other,
+            borderingSmallIDs.has(other.smallID()),
+          ),
+        }))
+        .sort((a, b) => a.otherID.localeCompare(b.otherID));
+      this.cachedDiplomaticRelations = {
+        epoch: relationEpoch,
+        value: diplomaticRelations,
+      };
+    }
+
+    const warGoalEpoch = Math.floor(this.mg.ticks() / 10);
+    let warGoals = this.cachedWarGoals?.value;
+    if (warGoals === undefined || this.cachedWarGoals?.epoch !== warGoalEpoch) {
+      warGoals = Array.from(this.warGoals, ([targetID, type]) => {
+        const target = this.mg.hasPlayer(targetID)
+          ? this.mg.player(targetID)
+          : null;
+        const regionID = this.warGoalRegions.get(targetID);
+        const initialTargetTiles =
+          this.warGoalInitialTargetTiles.get(targetID) ?? 0;
+        let remainingTargetTiles = initialTargetTiles;
+        if (target !== null && regionID !== undefined) {
+          remainingTargetTiles = 0;
+          for (const tile of target.tiles()) {
+            if (this.mg.historicalRegionAt(tile)?.id === regionID)
+              remainingTargetTiles++;
+          }
+        }
+        const warScore =
+          initialTargetTiles > 0
+            ? Math.round(
+                ((initialTargetTiles - remainingTargetTiles) /
+                  initialTargetTiles) *
+                  100,
+              )
+            : 0;
+        return {
+          targetID,
+          type,
+          regionID,
+          initialTargetTiles,
+          remainingTargetTiles,
+          warScore,
+        };
+      }).filter((wg) => {
+        const target = this.mg.hasPlayer(wg.targetID)
+          ? this.mg.player(wg.targetID)
+          : null;
+        return target !== null && this.isWarAuthorizedAgainst(target);
+      });
+      this.cachedWarGoals = { epoch: warGoalEpoch, value: warGoals };
+    }
 
     return {
       type: GameUpdateType.Player,
@@ -379,6 +538,21 @@ export class PlayerImpl implements Player {
       piracyGold: this._piracyGold,
       goldEarned: this._goldEarned,
       troops: this.troops(),
+      food: this._food,
+      materials: this._materials,
+      fuel: this._fuel,
+      foodProduction: production.food,
+      materialsProduction: production.materials,
+      fuelProduction: production.fuel,
+      foodConsumption: consumption.food,
+      materialsConsumption: consumption.materials,
+      fuelConsumption: consumption.fuel,
+      resourceShortages: {
+        food: this._food <= 0 && consumption.food > production.food,
+        materials:
+          this._materials <= 0 && consumption.materials > production.materials,
+        fuel: this._fuel <= 0 && consumption.fuel > production.fuel,
+      },
       allies: allies,
       embargoes: embargoes,
       isTraitor: this.isTraitor(),
@@ -395,6 +569,49 @@ export class PlayerImpl implements Player {
       hasSpawned: this.hasSpawned(),
       spawnTile: this._spawnTile,
       betrayals: this._betrayalCount,
+      threat: this.threat(),
+      reputation: this.reputation(),
+      stability: this.stability(),
+      publicSatisfaction: this.publicSatisfaction(),
+      taxPolicy: this.taxPolicy(),
+      mobilizationTarget: this.mobilizationTarget(),
+      civilianManpowerPotential: this.mg
+        .config()
+        .civilianManpowerPotential(this),
+      militaryCapacity: this.mg.config().maxTroops(this),
+      governmentProfile: this.governmentProfile(),
+      nationalInterests: this.nationalInterests(),
+      diplomaticRelations,
+      diplomaticMemories: this.diplomaticMemory.map((memory) => ({
+        ...memory,
+      })),
+      tradeContracts: Array.from(this.tradeContracts_.values(), (contract) => ({
+        ...contract,
+      })).sort((a, b) => a.id.localeCompare(b.id)),
+      diplomaticCrises: Array.from(
+        this.diplomaticCrises_.values(),
+        (crisis) => ({ ...crisis }),
+      ).sort((a, b) => a.id.localeCompare(b.id)),
+      casusBelli: Array.from(this.casusBelli.values())
+        .filter((cb) => cb.expiresAt > this.mg.ticks())
+        .map((cb) => ({ ...cb })),
+      warGoals,
+      nonAggressionPacts: Array.from(
+        this.nonAggressionPacts,
+        ([otherID, expiresAt]) => ({
+          otherID,
+          expiresAt,
+        }),
+      ).filter((x) => x.expiresAt > this.mg.ticks()),
+      tradeAgreements: Array.from(
+        this.tradeAgreements,
+        ([otherID, expiresAt]) => ({ otherID, expiresAt }),
+      ).filter((x) => x.expiresAt > this.mg.ticks()),
+      truces: Array.from(this.postWarTruces, ([otherID, expiresAt]) => ({
+        otherID,
+        expiresAt,
+      })).filter((x) => x.expiresAt > this.mg.ticks()),
+      guarantees: Array.from(this.guarantees_),
       lastDeleteUnitTick: this.lastDeleteUnitTick,
       isLobbyCreator: this.isLobbyCreator(),
     };
@@ -925,6 +1142,64 @@ export class PlayerImpl implements Player {
     return this.relationFromValue(relation);
   }
 
+  relationScore(other: Player): number {
+    if (other === this)
+      throw new Error(`cannot get relation with self: ${this}`);
+    return this.relations.get(other) ?? 0;
+  }
+
+  trust(other: Player): number {
+    if (other === this) throw new Error(`cannot get trust with self: ${this}`);
+    return this.diplomaticTrust.get(other.id()) ?? 50;
+  }
+
+  changeTrust(other: Player, delta: number): void {
+    if (other === this)
+      throw new Error(`cannot update trust with self: ${this}`);
+    this.diplomaticTrust.set(
+      other.id(),
+      within(this.trust(other) + delta, 0, 100),
+    );
+    this.cachedDiplomaticRelations = undefined;
+  }
+
+  perceivedThreat(other: Player, sharesBorder?: boolean): number {
+    if (other === this) return 0;
+    const ownPower = Math.max(1, this.troops() + this.numTilesOwned() * 20);
+    const otherPower = other.troops() + other.numTilesOwned() * 20;
+    const powerPressure = Math.min(30, (otherPower / ownPower) * 12);
+    const borderPressure =
+      (sharesBorder ?? this.sharesBorderWith(other)) ? 12 : 0;
+    const hostility = Math.max(0, -this.relationScore(other)) * 0.2;
+    return within(
+      Math.round(
+        other.threat() * 0.45 + powerPressure + borderPressure + hostility,
+      ),
+      0,
+      100,
+    );
+  }
+
+  rememberDiplomaticEvent(
+    other: Player,
+    type: DiplomaticMemoryType,
+    opinionImpact: number,
+    trustImpact: number,
+  ): void {
+    this.diplomaticMemory.push({
+      otherID: other.id(),
+      type,
+      createdAt: this.mg.ticks(),
+      opinionImpact,
+      trustImpact,
+    });
+    if (this.diplomaticMemory.length > 24) this.diplomaticMemory.shift();
+  }
+
+  diplomaticMemories(): readonly DiplomaticMemory[] {
+    return this.diplomaticMemory;
+  }
+
   private relationFromValue(relationValue: number): Relation {
     if (relationValue < -50) {
       return Relation.Hostile;
@@ -955,18 +1230,231 @@ export class PlayerImpl implements Player {
     const relation = this.relations.get(other) ?? 0;
     const newRelation = within(relation + delta, -100, 100);
     this.relations.set(other, newRelation);
+    this.cachedDiplomaticRelations = undefined;
   }
 
   decayRelations() {
     this.relations.forEach((r: number, p: Player) => {
       const sign = -1 * Math.sign(r);
-      const delta = 0.05;
+      const delta = 0.5;
       r += sign * delta;
       if (Math.abs(r) < delta * 2) {
         r = 0;
       }
       this.relations.set(p, r);
     });
+    this.cachedDiplomaticRelations = undefined;
+  }
+
+  casusBelliAgainst(other: Player): CasusBelli | null {
+    const cb = this.casusBelli.get(other.id());
+    if (cb === undefined) return null;
+    if (cb.expiresAt <= this.mg.ticks()) {
+      this.casusBelli.delete(other.id());
+      return null;
+    }
+    return cb;
+  }
+
+  grantCasusBelli(
+    other: Player,
+    type: CasusBelliType,
+    durationTicks = 1800,
+  ): void {
+    if (other === this) return;
+    const createdAt = this.mg.ticks();
+    this.casusBelli.set(other.id(), {
+      type,
+      targetID: other.id(),
+      createdAt,
+      expiresAt: createdAt + durationTicks,
+    });
+  }
+
+  consumeCasusBelli(other: Player): CasusBelli | null {
+    const cb = this.casusBelliAgainst(other);
+    if (cb === null) return null;
+    this.casusBelli.delete(other.id());
+    this.authorizeWarAgainst(other, 1800, cb.type);
+    return cb;
+  }
+
+  isWarAuthorizedAgainst(other: Player): boolean {
+    const until = this.warAuthorizations.get(other.id()) ?? -1;
+    if (until <= this.mg.ticks()) {
+      this.warAuthorizations.delete(other.id());
+      return false;
+    }
+    return true;
+  }
+
+  authorizeWarAgainst(
+    other: Player,
+    durationTicks = 1800,
+    warGoal: CasusBelliType | null = null,
+  ): void {
+    this.warAuthorizations.set(other.id(), this.mg.ticks() + durationTicks);
+    if (warGoal !== null) this.warGoals.set(other.id(), warGoal);
+  }
+
+  warGoalAgainst(other: Player): CasusBelliType | null {
+    if (!this.isWarAuthorizedAgainst(other)) {
+      this.warGoals.delete(other.id());
+      this.warGoalRegions.delete(other.id());
+      this.warGoalInitialTargetTiles.delete(other.id());
+      return null;
+    }
+    return this.warGoals.get(other.id()) ?? null;
+  }
+
+  warGoalRegionAgainst(other: Player): number | null {
+    if (!this.isWarAuthorizedAgainst(other)) {
+      this.warGoalRegions.delete(other.id());
+      return null;
+    }
+    return this.warGoalRegions.get(other.id()) ?? null;
+  }
+
+  setWarGoalRegionAgainst(other: Player, regionID: number): void {
+    if (!this.isWarAuthorizedAgainst(other)) return;
+    this.warGoalRegions.set(other.id(), regionID);
+    if (!this.warGoalInitialTargetTiles.has(other.id())) {
+      let count = 0;
+      for (const tile of other.tiles()) {
+        if (this.mg.historicalRegionAt(tile)?.id === regionID) count++;
+      }
+      this.warGoalInitialTargetTiles.set(other.id(), Math.max(1, count));
+    }
+  }
+
+  clearWarGoalRegionAgainst(other: Player): void {
+    this.warGoalRegions.delete(other.id());
+    this.warGoalInitialTargetTiles.delete(other.id());
+  }
+
+  endWarAgainst(other: Player): void {
+    this.warAuthorizations.delete(other.id());
+    this.warGoals.delete(other.id());
+    this.warGoalRegions.delete(other.id());
+    this.warGoalInitialTargetTiles.delete(other.id());
+  }
+
+  concludePeaceWith(other: Player, truceTicks = 1200): void {
+    // End both sides' active political war state and install a temporary truce.
+    this.endWarAgainst(other);
+    other.endWarAgainst(this);
+    this.setNonAggressionPact(other, truceTicks);
+    other.setNonAggressionPact(this, truceTicks);
+    const expiresAt = this.mg.ticks() + truceTicks;
+    this.postWarTruces.set(other.id(), expiresAt);
+    (other as PlayerImpl).postWarTruces.set(this.id(), expiresAt);
+    this.updateRelation(other, 20);
+    other.updateRelation(this, 20);
+    this.changeTrust(other, 5);
+    other.changeTrust(this, 5);
+    this.rememberDiplomaticEvent(other, "peace_signed", 20, 5);
+    other.rememberDiplomaticEvent(this, "peace_signed", 20, 5);
+  }
+
+  truceWith(other: Player): Tick | null {
+    const expiresAt = this.postWarTruces.get(other.id());
+    if (expiresAt === undefined) return null;
+    if (expiresAt <= this.mg.ticks()) {
+      this.postWarTruces.delete(other.id());
+      return null;
+    }
+    return expiresAt;
+  }
+
+  nonAggressionPactWith(other: Player): Tick | null {
+    const expiresAt = this.nonAggressionPacts.get(other.id());
+    if (expiresAt === undefined) return null;
+    if (expiresAt <= this.mg.ticks()) {
+      this.nonAggressionPacts.delete(other.id());
+      return null;
+    }
+    return expiresAt;
+  }
+
+  setNonAggressionPact(other: Player, durationTicks = 3600): void {
+    if (other === this) return;
+    const expiresAt = this.mg.ticks() + durationTicks;
+    this.nonAggressionPacts.set(other.id(), expiresAt);
+    // Keep it bilateral even for internal AI-created treaties.
+    const impl = other as PlayerImpl;
+    impl.nonAggressionPacts.set(this.id(), expiresAt);
+  }
+
+  breakNonAggressionPact(other: Player): void {
+    const wasActive = this.nonAggressionPactWith(other) !== null;
+    this.postWarTruces.delete(other.id());
+    (other as PlayerImpl).postWarTruces.delete(this.id());
+    this.nonAggressionPacts.delete(other.id());
+    const impl = other as PlayerImpl;
+    impl.nonAggressionPacts.delete(this.id());
+    if (wasActive) {
+      this.changeTrust(other, -30);
+      other.changeTrust(this, -30);
+      this.rememberDiplomaticEvent(other, "nap_broken", -15, -30);
+      other.rememberDiplomaticEvent(this, "nap_broken", -25, -30);
+    }
+  }
+
+  tradeAgreementWith(other: Player): Tick | null {
+    const expiresAt = this.tradeAgreements.get(other.id());
+    if (expiresAt === undefined) return null;
+    if (expiresAt <= this.mg.ticks()) {
+      this.tradeAgreements.delete(other.id());
+      return null;
+    }
+    return expiresAt;
+  }
+
+  setTradeAgreement(other: Player, durationTicks = 3600): void {
+    if (other === this || !this.canTrade(other)) return;
+    const expiresAt = this.mg.ticks() + durationTicks;
+    this.tradeAgreements.set(other.id(), expiresAt);
+    (other as PlayerImpl).tradeAgreements.set(this.id(), expiresAt);
+    this.updateRelation(other, 6);
+    other.updateRelation(this, 6);
+    this.changeTrust(other, 5);
+    other.changeTrust(this, 5);
+  }
+
+  guarantees(other: Player): boolean {
+    return this.guarantees_.has(other.id());
+  }
+
+  setGuarantee(other: Player, enabled: boolean): void {
+    if (other === this) return;
+    const wasEnabled = this.guarantees_.has(other.id());
+    if (enabled) this.guarantees_.add(other.id());
+    else this.guarantees_.delete(other.id());
+    if (enabled && !wasEnabled) {
+      other.changeTrust(this, 8);
+      this.rememberDiplomaticEvent(other, "guarantee_given", 8, 3);
+      other.rememberDiplomaticEvent(this, "guarantee_given", 8, 8);
+    } else if (!enabled && wasEnabled) {
+      other.changeTrust(this, -10);
+      this.rememberDiplomaticEvent(other, "guarantee_withdrawn", -5, -5);
+      other.rememberDiplomaticEvent(this, "guarantee_withdrawn", -8, -10);
+    }
+  }
+
+  threat(): number {
+    return this._threat;
+  }
+
+  reputation(): number {
+    return this._reputation;
+  }
+
+  changeThreat(delta: number): void {
+    this._threat = within(this._threat + delta, 0, 100);
+  }
+
+  changeReputation(delta: number): void {
+    this._reputation = within(this._reputation + delta, 0, 100);
   }
 
   canTarget(other: Player): boolean {
@@ -1342,6 +1830,473 @@ export class PlayerImpl implements Player {
     const actualRemoved = minInt(this._gold, toRemove);
     this._gold -= actualRemoved;
     return actualRemoved;
+  }
+
+  resources(): StrategicResources {
+    return { food: this._food, materials: this._materials, fuel: this._fuel };
+  }
+
+  resourceConsumption(): StrategicResources {
+    const tiles = this.numTilesOwned();
+    const troops = this.troops();
+    const activeAttackTroops = this.outgoingAttacks().reduce(
+      (sum, attack) => sum + attack.troops(),
+      0,
+    );
+    return {
+      food: Math.max(0.5, tiles * 0.018 + troops / 12_000),
+      materials: Math.max(0.2, tiles * 0.004 + this.units().length * 0.06),
+      fuel: Math.max(
+        0.1,
+        this.unitCount(UnitType.Warship) * 0.12 + activeAttackTroops / 80_000,
+      ),
+    };
+  }
+
+  addResources(toAdd: StrategicResources): void {
+    const cap = PlayerImpl.RESOURCE_CAP;
+    this._food = Math.max(0, Math.min(cap, this._food + toAdd.food));
+    this._materials = Math.max(
+      0,
+      Math.min(cap, this._materials + toAdd.materials),
+    );
+    this._fuel = Math.max(0, Math.min(cap, this._fuel + toAdd.fuel));
+  }
+
+  removeResource(resource: StrategicResource, amount: number): boolean {
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    const current = this.resources()[resource];
+    if (current + 1e-9 < amount) return false;
+    if (resource === "food") this._food = Math.max(0, this._food - amount);
+    if (resource === "materials")
+      this._materials = Math.max(0, this._materials - amount);
+    if (resource === "fuel") this._fuel = Math.max(0, this._fuel - amount);
+    return true;
+  }
+
+  tradeContracts(): readonly TradeContract[] {
+    return Array.from(this.tradeContracts_.values());
+  }
+
+  addTradeContract(contract: TradeContract): boolean {
+    if (this.tradeContracts_.has(contract.id)) return false;
+    this.tradeContracts_.set(contract.id, contract);
+    return true;
+  }
+
+  cancelTradeContract(contractID: string): boolean {
+    const contract = this.tradeContracts_.get(contractID);
+    if (contract === undefined || contract.status !== "active") return false;
+    contract.status = "cancelled";
+    return true;
+  }
+
+  processTradeContracts(): void {
+    for (const contract of this.tradeContracts_.values()) {
+      if (
+        contract.status !== "active" ||
+        contract.sellerID !== this.id() ||
+        contract.nextDeliveryAt > this.mg.ticks()
+      ) {
+        continue;
+      }
+      if (!this.isAlive() || !this.mg.hasPlayer(contract.buyerID)) {
+        contract.status = "failed";
+        contract.lastFailure = "partner_unavailable";
+        continue;
+      }
+      const buyer = this.mg.player(contract.buyerID);
+      if (!buyer.isAlive()) {
+        contract.status = "failed";
+        contract.lastFailure = "partner_unavailable";
+        continue;
+      }
+      if (!this.canTrade(buyer)) {
+        contract.status = "failed";
+        contract.lastFailure = "embargo";
+        this.changeTrust(buyer, -5);
+        buyer.changeTrust(this, -5);
+        this.rememberDiplomaticEvent(buyer, "trade_failed", -3, -5);
+        buyer.rememberDiplomaticEvent(this, "trade_failed", -3, -5);
+        continue;
+      }
+      const price = BigInt(contract.pricePerDelivery);
+      if (this.resources()[contract.resource] < contract.amountPerDelivery) {
+        contract.status = "failed";
+        contract.lastFailure = "insufficient_stock";
+        continue;
+      }
+      if (buyer.gold() < price) {
+        contract.status = "failed";
+        contract.lastFailure = "insufficient_funds";
+        continue;
+      }
+
+      // All preconditions are checked before either balance changes.
+      if (!this.removeResource(contract.resource, contract.amountPerDelivery)) {
+        contract.status = "failed";
+        contract.lastFailure = "insufficient_stock";
+        continue;
+      }
+      buyer.removeGold(price);
+      this.addGold(price);
+      buyer.addResources({
+        food: contract.resource === "food" ? contract.amountPerDelivery : 0,
+        materials:
+          contract.resource === "materials" ? contract.amountPerDelivery : 0,
+        fuel: contract.resource === "fuel" ? contract.amountPerDelivery : 0,
+      });
+      contract.deliveredCount++;
+      contract.deliveriesRemaining--;
+      contract.lastFailure = undefined;
+      if (contract.deliveriesRemaining <= 0) {
+        contract.status = "completed";
+        this.rememberDiplomaticEvent(buyer, "trade_completed", 5, 4);
+        buyer.rememberDiplomaticEvent(this, "trade_completed", 5, 4);
+      } else {
+        contract.nextDeliveryAt += contract.intervalTicks;
+      }
+      this.updateRelation(buyer, 1);
+      buyer.updateRelation(this, 1);
+      this.changeTrust(buyer, 1);
+      buyer.changeTrust(this, 1);
+    }
+  }
+
+  provideEconomicAid(other: Player, amount: Gold): boolean {
+    if (
+      other === this ||
+      !other.isAlive() ||
+      amount <= 0n ||
+      this.gold() < amount ||
+      this.mg.ticks() - (this.lastEconomicAid.get(other.id()) ?? -10_000) < 600
+    ) {
+      return false;
+    }
+    this.removeGold(amount);
+    other.addGold(amount);
+    this.lastEconomicAid.set(other.id(), this.mg.ticks());
+    other.updateRelation(this, 8);
+    other.changeTrust(this, 6);
+    this.rememberDiplomaticEvent(other, "economic_aid", 4, 3);
+    other.rememberDiplomaticEvent(this, "economic_aid", 8, 6);
+    return true;
+  }
+
+  launchJointProject(other: Player): boolean {
+    const cost = 400n;
+    if (
+      other === this ||
+      !other.isAlive() ||
+      !this.canTrade(other) ||
+      this.gold() < cost ||
+      other.gold() < cost ||
+      this.mg.ticks() - (this.lastJointProject.get(other.id()) ?? -10_000) <
+        1800
+    ) {
+      return false;
+    }
+    this.removeGold(cost);
+    other.removeGold(cost);
+    this.addResources({ food: 0, materials: 75, fuel: 0 });
+    other.addResources({ food: 0, materials: 75, fuel: 0 });
+    this.lastJointProject.set(other.id(), this.mg.ticks());
+    (other as PlayerImpl).lastJointProject.set(this.id(), this.mg.ticks());
+    this.updateRelation(other, 8);
+    other.updateRelation(this, 8);
+    this.changeTrust(other, 6);
+    other.changeTrust(this, 6);
+    this.rememberDiplomaticEvent(other, "joint_project", 8, 6);
+    other.rememberDiplomaticEvent(this, "joint_project", 8, 6);
+    return true;
+  }
+
+  diplomaticCrises(): readonly DiplomaticCrisis[] {
+    return Array.from(this.diplomaticCrises_.values());
+  }
+
+  startDiplomaticCrisis(other: Player): boolean {
+    if (
+      other === this ||
+      !other.isAlive() ||
+      this.truceWith(other) !== null ||
+      this.diplomaticCrises().some(
+        (crisis) =>
+          crisis.status === "pending" &&
+          crisis.issuerID === this.id() &&
+          crisis.targetID === other.id(),
+      )
+    ) {
+      return false;
+    }
+    const createdAt = this.mg.ticks();
+    const crisis: DiplomaticCrisis = {
+      id: `${createdAt}:${this.smallID()}:${other.smallID()}`,
+      issuerID: this.id(),
+      targetID: other.id(),
+      demand: "deescalate",
+      createdAt,
+      responseAt: createdAt + 50,
+      deadlineAt: createdAt + 300,
+      status: "pending",
+    };
+    this.diplomaticCrises_.set(crisis.id, crisis);
+    (other as PlayerImpl).diplomaticCrises_.set(crisis.id, crisis);
+    this.updateRelation(other, -8);
+    other.updateRelation(this, -12);
+    return true;
+  }
+
+  processDiplomaticCrises(): void {
+    for (const crisis of this.diplomaticCrises_.values()) {
+      if (
+        crisis.status !== "pending" ||
+        crisis.issuerID !== this.id() ||
+        this.mg.ticks() < crisis.responseAt
+      ) {
+        continue;
+      }
+      if (!this.mg.hasPlayer(crisis.targetID)) {
+        crisis.status = "cancelled";
+        continue;
+      }
+      const target = this.mg.player(crisis.targetID);
+      if (!target.isAlive() || this.truceWith(target) !== null) {
+        crisis.status = "cancelled";
+        continue;
+      }
+      const pressure = target.threat() + (100 - target.reputation());
+      const leverage = this.troops() / Math.max(1, target.troops());
+      const complies =
+        target.type() === PlayerType.Nation &&
+        pressure >= 45 &&
+        leverage >= 1.15 &&
+        target.relation(this) !== Relation.Hostile;
+      if (complies) {
+        crisis.status = "complied";
+        target.changeThreat(-15);
+        target.changeReputation(8);
+        target.updateRelation(this, -5);
+        this.rememberDiplomaticEvent(target, "crisis_complied", 3, 2);
+        target.rememberDiplomaticEvent(this, "crisis_complied", -5, 0);
+      } else if (
+        target.type() === PlayerType.Nation ||
+        this.mg.ticks() >= crisis.deadlineAt
+      ) {
+        crisis.status = "refused";
+        this.grantCasusBelli(target, CasusBelliType.Containment, 1800);
+        this.updateRelation(target, -15);
+        target.updateRelation(this, -20);
+        this.rememberDiplomaticEvent(target, "crisis_refused", -15, -8);
+        target.rememberDiplomaticEvent(this, "crisis_refused", -20, -8);
+      }
+    }
+  }
+
+  offerCrisisConcession(issuer: Player): boolean {
+    const crisis = this.diplomaticCrises().find(
+      (candidate) =>
+        candidate.status === "pending" &&
+        candidate.issuerID === issuer.id() &&
+        candidate.targetID === this.id(),
+    );
+    if (crisis === undefined || this.gold() < 300n) return false;
+    this.removeGold(300n);
+    issuer.addGold(300n);
+    crisis.status = "complied";
+    this.changeThreat(-10);
+    issuer.updateRelation(this, 6);
+    issuer.changeTrust(this, 4);
+    this.rememberDiplomaticEvent(issuer, "crisis_complied", -3, 1);
+    issuer.rememberDiplomaticEvent(this, "crisis_complied", 6, 4);
+    return true;
+  }
+
+  mediateCrisisInvolving(other: Player): boolean {
+    const crisis = other
+      .diplomaticCrises()
+      .find(
+        (candidate) =>
+          candidate.status === "pending" &&
+          candidate.issuerID !== this.id() &&
+          candidate.targetID !== this.id(),
+      );
+    if (crisis === undefined) return false;
+    if (
+      !this.mg.hasPlayer(crisis.issuerID) ||
+      !this.mg.hasPlayer(crisis.targetID)
+    ) {
+      return false;
+    }
+    const issuer = this.mg.player(crisis.issuerID);
+    const target = this.mg.player(crisis.targetID);
+    if (issuer.trust(this) < 55 || target.trust(this) < 55) return false;
+    crisis.status = "cancelled";
+    issuer.updateRelation(target, 5);
+    target.updateRelation(issuer, 5);
+    issuer.changeTrust(this, 2);
+    target.changeTrust(this, 2);
+    return true;
+  }
+
+  stability(): number {
+    return this._stability;
+  }
+
+  publicSatisfaction(): number {
+    return this._publicSatisfaction;
+  }
+
+  taxPolicy(): TaxPolicy {
+    return this._taxPolicy;
+  }
+
+  setTaxPolicy(policy: TaxPolicy): void {
+    this._taxPolicy = policy;
+  }
+
+  taxIncomeMultiplierPercent(): number {
+    if (this._taxPolicy === "very_low") return 60;
+    if (this._taxPolicy === "low") return 80;
+    if (this._taxPolicy === "high") return 125;
+    if (this._taxPolicy === "very_high") return 155;
+    return 100;
+  }
+
+  mobilizationTarget(): number {
+    return this._mobilizationTarget;
+  }
+
+  setMobilizationTarget(percent: number): void {
+    if (!Number.isFinite(percent)) return;
+    this._mobilizationTarget = Math.round(within(percent, 0, 100));
+  }
+
+  updateDomesticPolitics(): void {
+    const stocks = this.resources();
+    const shortagePenalty =
+      (stocks.food <= 0 ? 18 : 0) +
+      (stocks.materials <= 0 ? 6 : 0) +
+      (stocks.fuel <= 0 ? 8 : 0);
+    const warPenalty = this.outgoingAttacks().length > 0 ? 8 : 0;
+    const taxEffect =
+      this._taxPolicy === "very_low"
+        ? 16
+        : this._taxPolicy === "low"
+          ? 8
+          : this._taxPolicy === "high"
+            ? -12
+            : this._taxPolicy === "very_high"
+              ? -24
+              : 0;
+    const satisfactionTarget = within(
+      65 + taxEffect - shortagePenalty - warPenalty,
+      0,
+      100,
+    );
+    this._publicSatisfaction = within(
+      this._publicSatisfaction +
+        Math.sign(satisfactionTarget - this._publicSatisfaction),
+      0,
+      100,
+    );
+    const stabilityTarget = (this._publicSatisfaction + this._reputation) / 2;
+    this._stability = within(
+      this._stability + Math.sign(stabilityTarget - this._stability) * 0.5,
+      0,
+      100,
+    );
+    if (this.type() === PlayerType.Nation) {
+      if (this._stability < 25) this._taxPolicy = "very_low";
+      else if (this._stability < 35) this._taxPolicy = "low";
+      else if (this.gold() < 500n && this._stability > 60)
+        this._taxPolicy = this._stability > 78 ? "very_high" : "high";
+      else if (this._stability > 50) this._taxPolicy = "normal";
+      this.setMobilizationTarget(
+        this.incomingAttacks().length > 0 || this.outgoingAttacks().length > 0
+          ? 95
+          : this.threat() >= 60
+            ? 80
+            : this._stability < 35
+              ? 35
+              : 60,
+      );
+    }
+    if (this.mg.ticks() >= this._governmentTermEndsAt) {
+      const styles: GovernmentStyle[] = [
+        "hawkish",
+        "pragmatic",
+        "cooperative",
+        "cautious",
+      ];
+      this._governmentGeneration++;
+      const current = styles.indexOf(this._governmentStyle);
+      this._governmentStyle =
+        styles[(current + 1 + this.smallID()) % styles.length];
+      this._governmentTermEndsAt = this.mg.ticks() + 3600;
+      this._stability = within(this._stability - 3, 0, 100);
+    }
+  }
+
+  governmentProfile(): GovernmentProfile {
+    const modifiers: Record<
+      GovernmentStyle,
+      { tradeBias: number; riskTolerance: number }
+    > = {
+      hawkish: { tradeBias: -0.05, riskTolerance: 0.8 },
+      pragmatic: { tradeBias: 0.05, riskTolerance: 0.55 },
+      cooperative: { tradeBias: 0.15, riskTolerance: 0.35 },
+      cautious: { tradeBias: 0, riskTolerance: 0.2 },
+    };
+    return {
+      leaderName: `Government ${this._governmentGeneration}`,
+      style: this._governmentStyle,
+      generation: this._governmentGeneration,
+      termEndsAt: this._governmentTermEndsAt,
+      ...modifiers[this._governmentStyle],
+    };
+  }
+
+  nationalInterests(): NationalInterests {
+    const epoch = Math.floor(this.mg.ticks() / 60);
+    if (this.cachedNationalInterests?.epoch === epoch) {
+      return this.cachedNationalInterests.value;
+    }
+    const production = this.mg.resourceProduction(this);
+    const consumption = this.resourceConsumption();
+    const resourceAccess = (["food", "materials", "fuel"] as const)
+      .map((resource) => ({
+        resource,
+        balance: production[resource] - consumption[resource],
+        stock: this.resources()[resource],
+      }))
+      .sort((a, b) => a.balance - b.balance || a.stock - b.stock)[0].resource;
+    const style = this.governmentProfile().style;
+    const value: NationalInterests = {
+      security: within(
+        Math.round(100 - this._stability + (style === "cautious" ? 20 : 0)),
+        0,
+        100,
+      ),
+      expansion: within(
+        Math.round(this._threat * 0.6 + (style === "hawkish" ? 25 : 5)),
+        0,
+        100,
+      ),
+      resourceAccess,
+      preferredPartners: this.mg
+        .players()
+        .filter((other) => other !== this && other.isAlive())
+        .sort(
+          (a, b) =>
+            this.trust(b) - this.trust(a) ||
+            this.relationScore(b) - this.relationScore(a),
+        )
+        .slice(0, 3)
+        .map((other) => other.id()),
+    };
+    this.cachedNationalInterests = { epoch, value };
+    return value;
   }
 
   troops(): number {
@@ -1832,8 +2787,13 @@ export class PlayerImpl implements Player {
   }
 
   hash(): number {
+    const resourceHash =
+      Math.round(this._food * 1000) +
+      Math.round(this._materials * 1000) * 3 +
+      Math.round(this._fuel * 1000) * 7;
     return (
       simpleHash(this.id()) * (this.troops() + this.numTilesOwned()) +
+      resourceHash +
       this._units.reduce((acc, unit) => acc + unit.hash(), 0)
     );
   }
@@ -1900,6 +2860,7 @@ export class PlayerImpl implements Player {
     player: Player,
     treatAFKFriendly: boolean = false,
   ): boolean {
+    if (this.truceWith(player) !== null) return false;
     if (this.type() !== PlayerType.Human) {
       // Only human attackers respect PVP immunity
       return !this.isFriendly(player, treatAFKFriendly);

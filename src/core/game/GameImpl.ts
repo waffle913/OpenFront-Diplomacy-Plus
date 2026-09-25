@@ -21,6 +21,8 @@ import {
   GameMode,
   GameUpdates,
   HumansVsNations,
+  HistoricalRegion,
+  StrategicResources,
   MessageType,
   MutableAlliance,
   Nation,
@@ -38,6 +40,8 @@ import {
   Unit,
   UnitInfo,
   UnitType,
+  WORLD_FORMATION_END_TICK,
+  WORLD_FORMATION_UNLOCK_TICK,
 } from "./Game";
 import { GameMap, TileRef } from "./GameMap";
 import { GameUpdate, GameUpdateType } from "./GameUpdates";
@@ -76,6 +80,18 @@ export type CellString = string;
 
 export class GameImpl implements Game {
   private _ticks = 0;
+  private _historicalRegions: HistoricalRegion[] = [];
+  private _historicalRegionByTile!: Uint32Array;
+  private regionalSnapshotDone = false;
+  private regionalCaptureCursor = 0;
+  private regionalFounderToID = new Map<PlayerID, number>();
+  // Diplomacy+ V1.16: cached regional control and strategic-resource output.
+  // The immutable RegionID map remains the authority; these caches are updated
+  // incrementally on conquest so the economy never rescans the full map per tick.
+  private regionalControlCounts = new Map<number, Map<number, number>>();
+  private resourceProductionBySmallID = new Map<number, StrategicResources>();
+  private readonly zeroResourceProduction: StrategicResources = { food: 0, materials: 0, fuel: 0 };
+  private regionalEconomyReady = false;
   private startTick: number | null = null;
 
   private unInitExecs: Execution[] = [];
@@ -134,6 +150,7 @@ export class GameImpl implements Game {
     this._terraNullius = new TerraNulliusImpl();
     this._width = _map.width();
     this._height = _map.height();
+    this._historicalRegionByTile = new Uint32Array(this._width * this._height);
     this.unitGrid = new UnitGrid(this._map);
     this._waterManager = new WaterManager(
       this._map,
@@ -215,6 +232,262 @@ export class GameImpl implements Game {
   }
   miniMap(): GameMap {
     return this.miniGameMap;
+  }
+
+  historicalRegions(): readonly HistoricalRegion[] {
+    return this._historicalRegions;
+  }
+
+  historicalRegionIds(): Uint32Array {
+    return this._historicalRegionByTile;
+  }
+
+  historicalRegionAt(tile: TileRef): HistoricalRegion | null {
+    const id = this._historicalRegionByTile[tile] ?? 0;
+    return id === 0 ? null : (this._historicalRegions[id - 1] ?? null);
+  }
+
+  historicalRegionControl(regionID: number): { player: Player; tiles: number; share: number }[] {
+    const region = this._historicalRegions[regionID - 1];
+    if (!region || region.tileCount === 0) return [];
+
+    if (this.regionalEconomyReady) {
+      const counts = this.regionalControlCounts.get(regionID);
+      if (!counts) return [];
+      const result: { player: Player; tiles: number; share: number }[] = [];
+      for (const [smallID, tiles] of counts) {
+        if (tiles <= 0) continue;
+        const player = this.playerBySmallID(smallID);
+        if (!player.isPlayer()) continue;
+        result.push({ player, tiles, share: tiles / region.tileCount });
+      }
+      return result.sort((a, b) => b.tiles - a.tiles);
+    }
+
+    // Pre-V1.16 fallback while the T=20 regional snapshot is still being built.
+    const counts = new Map<Player, number>();
+    const ids = this._historicalRegionByTile;
+    for (let tile = 0; tile < ids.length; tile++) {
+      if (ids[tile] !== regionID) continue;
+      const owner = this.owner(tile);
+      if (!owner.isPlayer()) continue;
+      counts.set(owner, (counts.get(owner) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([player, tiles]) => ({ player, tiles, share: tiles / region.tileCount }))
+      .sort((a, b) => b.tiles - a.tiles);
+  }
+
+  resourceProduction(player: Player): StrategicResources {
+    return this.resourceProductionBySmallID.get(player.smallID()) ?? this.zeroResourceProduction;
+  }
+
+  private addResourceProduction(smallID: number, delta: StrategicResources): void {
+    if (smallID <= 0) return;
+    let current = this.resourceProductionBySmallID.get(smallID);
+    if (!current) {
+      current = { food: 0, materials: 0, fuel: 0 };
+      this.resourceProductionBySmallID.set(smallID, current);
+    }
+    current.food = Math.max(0, current.food + delta.food);
+    current.materials = Math.max(0, current.materials + delta.materials);
+    current.fuel = Math.max(0, current.fuel + delta.fuel);
+  }
+
+  private initializeRegionalEconomy(): void {
+    if (this.regionalEconomyReady || this._historicalRegions.length === 0) return;
+
+    type TerrainCounts = { plains: number; highland: number; mountain: number };
+    const terrain = new Map<number, TerrainCounts>();
+    this.regionalControlCounts.clear();
+    this.resourceProductionBySmallID.clear();
+
+    const ids = this._historicalRegionByTile;
+    for (let tile = 0; tile < ids.length; tile++) {
+      const regionID = ids[tile];
+      if (regionID === 0) continue;
+
+      let tc = terrain.get(regionID);
+      if (!tc) {
+        tc = { plains: 0, highland: 0, mountain: 0 };
+        terrain.set(regionID, tc);
+      }
+      switch (this.terrainType(tile)) {
+        case TerrainType.Plains: tc.plains++; break;
+        case TerrainType.Highland: tc.highland++; break;
+        case TerrainType.Mountain: tc.mountain++; break;
+      }
+
+      const owner = this.owner(tile);
+      if (owner.isPlayer()) {
+        let byOwner = this.regionalControlCounts.get(regionID);
+        if (!byOwner) {
+          byOwner = new Map<number, number>();
+          this.regionalControlCounts.set(regionID, byOwner);
+        }
+        byOwner.set(owner.smallID(), (byOwner.get(owner.smallID()) ?? 0) + 1);
+      }
+    }
+
+    for (const region of this._historicalRegions) {
+      // Very small snapshot fragments are intentionally hidden from the region
+      // UI/boundary metadata; keep them economically inert as well so national
+      // production always decomposes into visible regions.
+      if (region.tileCount < 8) {
+        region.resources = { food: 0, materials: 0, fuel: 0 };
+        continue;
+      }
+      const tc = terrain.get(region.id) ?? { plains: region.tileCount, highland: 0, mountain: 0 };
+      const total = Math.max(1, tc.plains + tc.highland + tc.mountain);
+      const p = tc.plains / total;
+      const h = tc.highland / total;
+      const m = tc.mountain / total;
+      const size = Math.max(1, Math.sqrt(region.tileCount));
+
+      // Production is expressed per minute at 100% control. Terrain determines
+      // food/materials; fuel is deliberately scarcer and geographically uneven.
+      const food = Math.max(1, Math.round(size * (p * 1.0 + h * 0.55 + m * 0.22) * 1.8));
+      const materials = Math.max(1, Math.round(size * (p * 0.22 + h * 0.72 + m * 1.10) * 1.55));
+      const fuelRoll = (simpleHash(`${region.founderID}:${region.id}:fuel`) >>> 0) % 100;
+      const fuelRichness = fuelRoll < 48 ? 0 : fuelRoll < 78 ? 0.35 : fuelRoll < 94 ? 0.75 : 1.35;
+      const fuel = fuelRichness === 0 ? 0 : Math.max(1, Math.round(size * fuelRichness * 0.72));
+      region.resources = { food, materials, fuel };
+
+      const byOwner = this.regionalControlCounts.get(region.id);
+      if (!byOwner) continue;
+      for (const [smallID, tiles] of byOwner) {
+        const share = tiles / region.tileCount;
+        this.addResourceProduction(smallID, {
+          food: food * share,
+          materials: materials * share,
+          fuel: fuel * share,
+        });
+      }
+    }
+
+    this.regionalEconomyReady = true;
+    console.log(`[Diplomacy+] V1.16 regional economy initialized for ${this._historicalRegions.length} regions`);
+  }
+
+  private updateRegionalEconomyOwnership(
+    tile: TileRef,
+    previousSmallID: number,
+    nextSmallID: number,
+  ): void {
+    if (!this.regionalEconomyReady || previousSmallID === nextSmallID) return;
+    const regionID = this._historicalRegionByTile[tile] ?? 0;
+    if (regionID === 0) return;
+    const region = this._historicalRegions[regionID - 1];
+    if (!region || region.tileCount <= 0) return;
+
+    let counts = this.regionalControlCounts.get(regionID);
+    if (!counts) {
+      counts = new Map<number, number>();
+      this.regionalControlCounts.set(regionID, counts);
+    }
+    if (previousSmallID > 0) {
+      const n = Math.max(0, (counts.get(previousSmallID) ?? 0) - 1);
+      if (n === 0) counts.delete(previousSmallID);
+      else counts.set(previousSmallID, n);
+    }
+    if (nextSmallID > 0) counts.set(nextSmallID, (counts.get(nextSmallID) ?? 0) + 1);
+
+    const perTile = {
+      food: region.resources.food / region.tileCount,
+      materials: region.resources.materials / region.tileCount,
+      fuel: region.resources.fuel / region.tileCount,
+    };
+    if (previousSmallID > 0) {
+      this.addResourceProduction(previousSmallID, {
+        food: -perTile.food, materials: -perTile.materials, fuel: -perTile.fuel,
+      });
+    }
+    if (nextSmallID > 0) this.addResourceProduction(nextSmallID, perTile);
+  }
+
+  private cleanRegionName(raw: string): string {
+    let name = raw.trim().replace(/^the\s+/i, "");
+    const prefixes = [
+      /^(?:people's|peoples|people’s) republic of\s+/i,
+      /^federal republic of\s+/i, /^democratic republic of\s+/i,
+      /^grand duchy of\s+/i, /^confederation of\s+/i, /^confederacy of\s+/i,
+      /^parliament of\s+/i, /^republic of\s+/i, /^kingdom of\s+/i,
+      /^empire of\s+/i, /^sultanate of\s+/i, /^principality of\s+/i,
+      /^duchy of\s+/i, /^caliphate of\s+/i, /^commonwealth of\s+/i,
+    ];
+    const suffixes = [
+      /\s+(?:people's|peoples|people’s) republic$/i,
+      /\s+federal republic$/i, /\s+democratic republic$/i,
+      /\s+grand duchy$/i, /\s+confederation$/i, /\s+confederacy$/i,
+      /\s+parliament$/i, /\s+republic$/i, /\s+kingdom$/i,
+      /\s+empire$/i, /\s+sultanate$/i, /\s+principality$/i,
+      /\s+duchy$/i, /\s+caliphate$/i, /\s+commonwealth$/i,
+    ];
+    let previous = "";
+    while (previous !== name) {
+      previous = name;
+      for (const r of prefixes) name = name.replace(r, "");
+      for (const r of suffixes) name = name.replace(r, "");
+      name = name.trim();
+    }
+    return name || raw.trim();
+  }
+
+  private captureHistoricalRegionChunk(): void {
+    if (this.inSpawnPhase() || this.regionalSnapshotDone) return;
+    const elapsed = this.ticksSinceStart();
+
+    // IMPORTANT: do not record growing tribes progressively. We begin only at
+    // T=20, so every region describes the mature territorial layout. The map
+    // remains politically frozen while this final snapshot is copied in chunks.
+    if (elapsed < WORLD_FORMATION_END_TICK) return;
+
+    const total = this._historicalRegionByTile.length;
+    const ticksLeft = Math.max(1, WORLD_FORMATION_UNLOCK_TICK - elapsed);
+    const remaining = total - this.regionalCaptureCursor;
+    const budget = Math.max(1, Math.ceil(remaining / ticksLeft));
+    const end = Math.min(total, this.regionalCaptureCursor + budget);
+
+    for (let tile = this.regionalCaptureCursor; tile < end; tile++) {
+      if (!this._map.hasOwner(tile)) continue;
+      const owner = this.owner(tile);
+      if (!owner.isPlayer() || !owner.isAlive()) continue;
+      // Both mature tribes and the small nation spawn territories become
+      // immutable historical regions (nation regions are their capital cores).
+      if (owner.type() !== PlayerType.Bot && owner.type() !== PlayerType.Nation) continue;
+
+      let regionID = this.regionalFounderToID.get(owner.id());
+      if (regionID === undefined) {
+        regionID = this._historicalRegions.length + 1;
+        this.regionalFounderToID.set(owner.id(), regionID);
+        this._historicalRegions.push({
+          id: regionID,
+          name: this.cleanRegionName(owner.displayName()),
+          founderID: owner.id(),
+          tileCount: 0,
+          representativeTile: tile,
+          resources: { food: 0, materials: 0, fuel: 0 },
+        });
+      }
+      this._historicalRegionByTile[tile] = regionID;
+      this._historicalRegions[regionID - 1].tileCount++;
+    }
+    this.regionalCaptureCursor = end;
+
+    if (this.regionalCaptureCursor >= total) {
+      this.regionalSnapshotDone = true;
+      this.initializeRegionalEconomy();
+      console.log(`[Diplomacy+] Final T=20 regional snapshot complete: ${this._historicalRegions.length} regions`);
+    }
+  }
+
+  private freezeHistoricalRegions(): void {
+    // Safety fallback: the chunker normally completes by WORLD_FORMATION_UNLOCK_TICK.
+    if (this.regionalSnapshotDone || this.inSpawnPhase()) return;
+    if (this.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK) return;
+    this.regionalSnapshotDone = true;
+    this.initializeRegionalEconomy();
+    console.log(`[Diplomacy+] Regional snapshot safety-freeze at ${this.regionalCaptureCursor}/${this._historicalRegionByTile.length}`);
   }
 
   addUpdate(update: GameUpdate) {
@@ -485,6 +758,29 @@ export class GameImpl implements Game {
     return this._ticks;
   }
 
+  executePausedActions(executions: Execution[]): GameUpdates {
+    this.updates = createGameUpdatesMap();
+    this.tileUpdatePairs.length = 0;
+    // Initialize only the submitted orders. Existing AI/combat/economy executions
+    // and their timers remain untouched until a regular simulation turn.
+    for (const execution of executions) {
+      if (this.inSpawnPhase() && !execution.activeDuringSpawnPhase()) {
+        this.unInitExecs.push(execution);
+        continue;
+      }
+      execution.init(this, this._ticks);
+      if (execution.isActive() && execution.applyDuringPause?.()) {
+        execution.tick(this._ticks);
+      }
+      if (execution.isActive()) this.execs.push(execution);
+    }
+    for (const player of this._players.values()) {
+      const update = player.toUpdate(this.playerStatsQuads, this.attackTroopsQuads);
+      if (update !== null) this.addUpdate(update);
+    }
+    return this.updates;
+  }
+
   executeNextTick(): GameUpdates {
     this.updates = createGameUpdatesMap();
     this.tileUpdatePairs.length = 0;
@@ -542,6 +838,8 @@ export class GameImpl implements Game {
       this.recordTileUpdate(tile);
     }
     this._ticks++;
+    this.captureHistoricalRegionChunk();
+    this.freezeHistoricalRegions();
     return this.updates;
   }
 
@@ -774,6 +1072,11 @@ export class GameImpl implements Game {
     }
     this._territoryVersion++;
     this._map.setOwnerID(tile, owner.smallID());
+    this.updateRegionalEconomyOwnership(
+      tile,
+      previousOwner.isPlayer() ? previousOwner.smallID() : 0,
+      owner.smallID(),
+    );
     owner._tiles.add(tile);
     owner._lastTileChange = this._ticks;
     owner._tileChangeVersion++;
@@ -798,6 +1101,7 @@ export class GameImpl implements Game {
 
     this._territoryVersion++;
     this._map.setOwnerID(tile, 0);
+    this.updateRegionalEconomyOwnership(tile, previousOwner.smallID(), 0);
     this.updateBorders(tile);
     this.recordTileUpdate(tile);
   }
@@ -936,7 +1240,7 @@ export class GameImpl implements Game {
     );
   }
 
-  private ticksSinceStart(): number {
+  ticksSinceStart(): number {
     if (this.inSpawnPhase()) {
       return 0;
     }

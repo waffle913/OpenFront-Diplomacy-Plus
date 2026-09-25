@@ -2,6 +2,7 @@ import { renderTroops } from "../../client/Utils";
 import { AttackLogicInput } from "../configuration/Config";
 import {
   Attack,
+  CasusBelliType,
   Difficulty,
   Execution,
   Game,
@@ -12,6 +13,7 @@ import {
   TerrainType,
   TerraNullius,
   UnitType,
+  WORLD_FORMATION_UNLOCK_TICK,
 } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
 import { PseudoRandom } from "../PseudoRandom";
@@ -33,6 +35,20 @@ export class AttackExecution implements Execution {
 
   private attack: Attack | null = null;
 
+  // Diplomacy+ V1.9: territorial offensives are regional. The first
+  // historical region entered becomes the concrete war objective. This avoids
+  // arbitrary percentage caps that tended to stop wars halfway through a
+  // region and manufacture accidental contested borders.
+  private warGoal: CasusBelliType | null = null;
+  private claimedRegionID: number | null = null;
+  private claimedRegionTargetTilesRemaining = 0;
+
+  // V1.13: hard operational boundary for every sovereign-vs-sovereign land
+  // offensive. The first historical region actually entered by this charge
+  // becomes its immutable operational region. A single AttackExecution may
+  // never conquer a tile in another historical region.
+  private operationalRegionID: number | null = null;
+
   // Cached smallIDs for integer owner comparisons in hot loops.
   private ownerSmallID: number;
   private targetSmallID: number;
@@ -46,6 +62,7 @@ export class AttackExecution implements Execution {
     private _targetID: PlayerID | null,
     private sourceTile: TileRef | null = null,
     private removeTroops: boolean = true,
+    private requestedRegionID: number | null = null,
   ) {}
 
   public targetID(): PlayerID | null {
@@ -76,6 +93,29 @@ export class AttackExecution implements Execution {
     this.ownerSmallID = this._owner.smallID();
     this.targetSmallID = this.target.smallID();
 
+    // V1.14: the caller may choose the political objective before combat.
+    // This makes the region the cause/target of the offensive rather than
+    // letting the first randomly reached tile decide it.
+    if (this.target.isPlayer()) {
+      // Once a territorial war has a declared region, later clicks cannot
+      // silently move the war to another province. The first declaration
+      // chooses it; subsequent offensives inherit it.
+      const declaredRegion = this._owner.warGoalRegionAgainst(this.target);
+      if (declaredRegion !== null) this.requestedRegionID = declaredRegion;
+      if (this.requestedRegionID !== null) {
+        this.operationalRegionID = this.requestedRegionID;
+      }
+    }
+
+    if (
+      !this.mg.inSpawnPhase() &&
+      this.mg.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK &&
+      this.target.isPlayer()
+    ) {
+      this.active = false;
+      return;
+    }
+
     if (this._owner === this.target) {
       console.error(`Player ${this._owner} cannot attack itself`);
       this.active = false;
@@ -94,6 +134,61 @@ export class AttackExecution implements Execution {
       }
     }
 
+    if (this.target.isPlayer() && !this._owner.canAttackPlayer(this.target)) {
+      // A landing already paid for these troops when the transport departed.
+      if (this.sourceTile !== null && !this.removeTroops) {
+        this._owner.addTroops(this.startTroops ?? 0);
+      }
+      this.active = false;
+      return;
+    }
+
+    // Validate regional land assaults before committing troops or diplomacy.
+    if (
+      this.sourceTile === null &&
+      this.target.isPlayer() &&
+      this.requestedRegionID !== null
+    ) {
+      if (this.countRegionTiles(this.target, this.requestedRegionID) === 0) {
+        if (
+          this.target.type() !== PlayerType.Bot &&
+          this._owner.isWarAuthorizedAgainst(this.target)
+        ) {
+          this._owner.concludePeaceWith(this.target, 1200);
+        } else {
+          this._owner.clearWarGoalRegionAgainst(this.target);
+        }
+        this.active = false;
+        return;
+      }
+      if (!this.hasReachableBorderInRegion(this.requestedRegionID)) {
+        this.active = false;
+        return;
+      }
+    }
+
+    this.startTroops ??= this.mg
+      .config()
+      .attackAmount(this._owner, this.target);
+
+    // Strategic logistics are charged only after every territorial and treaty
+    // validation has passed, but before troops or diplomatic state change.
+    if (
+      !this.mg.inSpawnPhase() &&
+      this.mg.ticksSinceStart() >= WORLD_FORMATION_UNLOCK_TICK
+    ) {
+      const committed = Math.min(this._owner.troops(), this.startTroops);
+      const foodCost = Math.min(10, Math.max(0.2, committed / 100_000));
+      const fuelCost = Math.min(5, Math.max(0.1, committed / 200_000));
+      const stocks = this._owner.resources();
+      if (stocks.food < foodCost || stocks.fuel < fuelCost) {
+        this.active = false;
+        return;
+      }
+      this._owner.removeResource("food", foodCost);
+      this._owner.removeResource("fuel", fuelCost);
+    }
+
     if (this.target && this.target.isPlayer()) {
       const targetPlayer = this.target as Player;
       if (
@@ -106,14 +201,6 @@ export class AttackExecution implements Execution {
       }
     }
 
-    if (this.target.isPlayer() && !this._owner.canAttackPlayer(this.target)) {
-      this.active = false;
-      return;
-    }
-
-    this.startTroops ??= this.mg
-      .config()
-      .attackAmount(this._owner, this.target);
     if (this.removeTroops) {
       this.startTroops = Math.min(this._owner.troops(), this.startTroops);
       // Take the amount that was actually deducted, not the amount asked for.
@@ -172,6 +259,159 @@ export class AttackExecution implements Execution {
     this.mg.stats().attackMaxIncoming(this.target, this.attack.troops());
 
     if (this.target.isPlayer()) {
+      const targetPlayer = this.target;
+
+      // Diplomacy+ V1.10: tribes are frontier actors, not sovereign states.
+      // Expanding into a tribe should not make a Nation/Human internationally
+      // notorious. Keep the combat itself unchanged, but skip the CB/Threat/Rep
+      // machinery that is reserved for wars between sovereign states.
+      if (
+        targetPlayer.type() === PlayerType.Bot &&
+        this._owner.type() !== PlayerType.Bot
+      ) {
+        this.warGoal = null;
+      } else {
+        const alreadyAtWar = this._owner.isWarAuthorizedAgainst(targetPlayer);
+        const napExpiry = this._owner.nonAggressionPactWith(targetPlayer);
+        if (!alreadyAtWar && napExpiry !== null) {
+          this._owner.breakNonAggressionPact(targetPlayer);
+          this._owner.changeThreat(25);
+          this._owner.changeReputation(-25);
+          targetPlayer.grantCasusBelli(
+            this._owner,
+            CasusBelliType.TreatyViolation,
+            4800,
+          );
+        }
+        const cb = alreadyAtWar
+          ? null
+          : this._owner.consumeCasusBelli(targetPlayer);
+        const justified = alreadyAtWar || cb !== null;
+        // The CB is consumed at war start, but PlayerImpl persists its type as
+        // the war goal for the authorization's lifetime.
+        const warGoal = this._owner.warGoalAgainst(targetPlayer);
+        // Every sovereign land war gets a declared theatre. A CB determines
+        // whether the war is justified; the clicked/chosen region determines
+        // what territory this war is actually about. Even an unjustified war
+        // therefore cannot quietly hop to another region on the next charge.
+        if (
+          this.requestedRegionID !== null &&
+          this._owner.warGoalRegionAgainst(targetPlayer) === null
+        ) {
+          // consumeCasusBelli() has already authorized justified wars. For an
+          // unjustified first strike authorization happens just below, so that
+          // case is persisted immediately after authorizeWarAgainst().
+          if (this._owner.isWarAuthorizedAgainst(targetPlayer)) {
+            this._owner.setWarGoalRegionAgainst(
+              targetPlayer,
+              this.requestedRegionID,
+            );
+          }
+        }
+        if (
+          targetPlayer.type() !== PlayerType.Bot &&
+          this.requestedRegionID !== null
+        ) {
+          this.claimedRegionID = this.requestedRegionID;
+          this._owner.setWarGoalRegionAgainst(
+            targetPlayer,
+            this.requestedRegionID,
+          );
+          let remaining = 0;
+          for (const tile of targetPlayer.tiles()) {
+            if (this.mg.historicalRegionAt(tile)?.id === this.requestedRegionID)
+              remaining++;
+          }
+          this.claimedRegionTargetTilesRemaining = remaining;
+        }
+
+        if (!justified) {
+          // War is never forbidden. An unjustified first strike simply carries
+          // international consequences, then opens a temporary war state so
+          // repeated clicks do not repeatedly apply the diplomatic penalty.
+          this._owner.authorizeWarAgainst(targetPlayer, 1800, null);
+          if (this.requestedRegionID !== null) {
+            this._owner.setWarGoalRegionAgainst(
+              targetPlayer,
+              this.requestedRegionID,
+            );
+          }
+          this._owner.changeThreat(20);
+          this._owner.changeReputation(-15);
+
+          // The victim always gains a retaliation CB. Other states react
+          // individually: friends of the victim care more, friends of the
+          // aggressor less. This is intentionally simple for Diplomacy V0.1.
+          targetPlayer.grantCasusBelli(
+            this._owner,
+            CasusBelliType.Retaliation,
+            2400,
+          );
+          // Guarantees turn aggression against a protected state into a direct
+          // defensive CB for each guarantor.
+          for (const observer of this.mg.players()) {
+            if (observer === this._owner || observer === targetPlayer) continue;
+            if (observer.guarantees(targetPlayer)) {
+              observer.grantCasusBelli(
+                this._owner,
+                CasusBelliType.Containment,
+                4800,
+              );
+              observer.updateRelation(this._owner, -30);
+              targetPlayer.updateRelation(observer, 8);
+            }
+          }
+
+          for (const observer of this.mg.players()) {
+            if (observer === this._owner) continue;
+            const extremeAggressor =
+              this._owner.threat() >= 80 || this._owner.reputation() <= 20;
+            const regionalConcern =
+              this._owner.threat() >= 55 || this._owner.reputation() <= 45;
+            const locallyRelevant =
+              observer.sharesBorderWith(this._owner) ||
+              observer.relation(this._owner) <= -25;
+            if (
+              observer.casusBelliAgainst(this._owner) === null &&
+              (extremeAggressor || (regionalConcern && locallyRelevant))
+            ) {
+              observer.grantCasusBelli(
+                this._owner,
+                CasusBelliType.Containment,
+                6000,
+              );
+            }
+          }
+
+          for (const observer of this.mg.players()) {
+            if (observer === this._owner || observer === targetPlayer) continue;
+            let reaction = -8;
+            if (observer.relation(targetPlayer) >= 3) reaction -= 10;
+            if (observer.relation(this._owner) >= 3) reaction += 5;
+            observer.updateRelation(this._owner, reaction);
+          }
+        }
+
+        if (!alreadyAtWar) {
+          this._owner.changeTrust(targetPlayer, -10);
+          targetPlayer.changeTrust(this._owner, -35);
+          this._owner.rememberDiplomaticEvent(
+            targetPlayer,
+            "war_started",
+            -10,
+            -10,
+          );
+          targetPlayer.rememberDiplomaticEvent(
+            this._owner,
+            "war_started",
+            -30,
+            -35,
+          );
+        }
+
+        this.warGoal = warGoal;
+      }
+
       const difficulty = this.mg.config().gameConfig().difficulty;
       let relationChange: number;
       switch (difficulty) {
@@ -192,6 +432,31 @@ export class AttackExecution implements Execution {
       }
       this.target.updateRelation(this._owner, relationChange);
     }
+  }
+
+  private countRegionTiles(target: Player, regionID: number): number {
+    let count = 0;
+    for (const tile of target.tiles()) {
+      if (this.mg.historicalRegionAt(tile)?.id === regionID) count++;
+    }
+    return count;
+  }
+
+  private hasReachableBorderInRegion(regionID: number): boolean {
+    for (const border of this._owner.borderTiles()) {
+      const count = this.map.neighbors4(border, this.nbuf);
+      for (let i = 0; i < count; i++) {
+        const tile = this.nbuf[i];
+        if (
+          this.map.ownerID(tile) === this.targetSmallID &&
+          this.map.isLand(tile) &&
+          !this.map.isImpassable(tile) &&
+          this.mg.historicalRegionAt(tile)?.id === regionID
+        )
+          return true;
+      }
+    }
+    return false;
   }
 
   private refreshToConquer() {
@@ -240,6 +505,12 @@ export class AttackExecution implements Execution {
   }
 
   tick(ticks: number) {
+    if (
+      !this.mg.inSpawnPhase() &&
+      this.mg.ticksSinceStart() >= 200 &&
+      this.mg.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK
+    )
+      return;
     if (this.attack === null) {
       throw new Error("Attack not initialized");
     }
@@ -270,6 +541,33 @@ export class AttackExecution implements Execution {
       // In this case a new alliance was created AFTER the attack started.
       this.retreat();
       return;
+    }
+
+    // Peace also stops charges already in flight on either side.
+    if (
+      targetPlayer &&
+      (this._owner.truceWith(targetPlayer) !== null ||
+        (this._owner.nonAggressionPactWith(targetPlayer) !== null &&
+          !this._owner.isWarAuthorizedAgainst(targetPlayer)))
+    ) {
+      this.retreat();
+      return;
+    }
+    // Recount once per tick: other offensives can capture or restore tiles.
+    if (
+      targetPlayer &&
+      targetPlayer.type() !== PlayerType.Bot &&
+      this.claimedRegionID !== null
+    ) {
+      this.claimedRegionTargetTilesRemaining = this.countRegionTiles(
+        targetPlayer,
+        this.claimedRegionID,
+      );
+      if (this.claimedRegionTargetTilesRemaining === 0) {
+        this._owner.concludePeaceWith(targetPlayer, 1200);
+        this.retreat();
+        return;
+      }
     }
 
     const borderSize = this.attack.borderSize() + this.random.nextInt(0, 5);
@@ -309,6 +607,51 @@ export class AttackExecution implements Execution {
       ) {
         continue;
       }
+
+      // V1.13 HARD REGIONAL FRONTIER. This sits immediately before combat and
+      // Player.conquer(), so it constrains the actual tile-capture path rather
+      // than diplomacy/AI target selection. This applies to every player-owned
+      // target, including tribes, so the rule can be tested consistently.
+      if (targetPlayer) {
+        const region = this.mg.historicalRegionAt(tileToConquer);
+        if (region !== null) {
+          if (this.operationalRegionID === null) {
+            this.operationalRegionID = region.id;
+          } else if (region.id !== this.operationalRegionID) {
+            // Do not capture across the black historical border. Other queued
+            // tiles may still belong to this offensive's region, so skip only
+            // this tile instead of cancelling the whole attack immediately.
+            continue;
+          }
+        } else if (this.operationalRegionID !== null) {
+          // Once a charge is region-bound, unclassified land cannot be used as
+          // a bridge around the frontier.
+          continue;
+        }
+      }
+
+      // Territorial offensives are regional, not a licence to annex the
+      // entire enemy. Border claims and containment both bind themselves to
+      // the first historical region actually entered. From then on this
+      // execution can only advance inside that immutable region.
+      if (targetPlayer && targetPlayer.type() !== PlayerType.Bot) {
+        const region = this.mg.historicalRegionAt(tileToConquer);
+        if (this.claimedRegionID === null) {
+          if (region !== null) {
+            this.claimedRegionID = region.id;
+            this._owner.setWarGoalRegionAgainst(targetPlayer, region.id);
+            let remaining = 0;
+            for (const tile of targetPlayer.tiles()) {
+              if (this.mg.historicalRegionAt(tile)?.id === region.id)
+                remaining++;
+            }
+            this.claimedRegionTargetTilesRemaining = remaining;
+          }
+        } else if (region?.id !== this.claimedRegionID) {
+          continue;
+        }
+      }
+
       this.addNeighbors(tileToConquer);
       const { attackerTroopLoss, defenderTroopLoss, tickFraction } = this.mg
         .config()
@@ -322,6 +665,31 @@ export class AttackExecution implements Execution {
         targetPlayer.removeTroops(defenderTroopLoss);
       }
       this._owner.conquer(tileToConquer);
+
+      if (
+        targetPlayer &&
+        targetPlayer.type() !== PlayerType.Bot &&
+        this.claimedRegionID !== null
+      ) {
+        this.claimedRegionTargetTilesRemaining = Math.max(
+          0,
+          this.claimedRegionTargetTilesRemaining - 1,
+        );
+        // The target no longer controls any tile of the claimed region: the
+        // territorial war goal is fulfilled, so stop instead of blob-conquering.
+        if (this.claimedRegionTargetTilesRemaining === 0) {
+          // V1.15: fulfilling the declared regional objective ends the war rather
+          // than merely ending this charge. The victor keeps conquered land;
+          // both states receive a temporary truce so the AI cannot instantly
+          // restart the same conflict.
+          this._owner.changeThreat(-2);
+          this._owner.changeReputation(2);
+          this._owner.concludePeaceWith(targetPlayer, 1200);
+          this.retreat();
+          return;
+        }
+      }
+
       this.handleDeadDefender();
     }
   }
@@ -396,6 +764,28 @@ export class AttackExecution implements Execution {
       ) {
         continue;
       }
+      // V1.13: once this charge has entered a historical region, never even
+      // enqueue enemy tiles across another regional frontier. The pre-conquer
+      // guard above remains as the authoritative safety check.
+      if (
+        this.operationalRegionID !== null &&
+        this.target.isPlayer() &&
+        this.mg.historicalRegionAt(neighbor)?.id !== this.operationalRegionID
+      ) {
+        continue;
+      }
+
+      // Once a regional war has selected its objective, every later charge is
+      // seeded only from border tiles inside that region. This prevents a new
+      // AttackExecution from wandering into a different province.
+      if (
+        this.claimedRegionID !== null &&
+        this.target.isPlayer() &&
+        this.target.type() !== PlayerType.Bot &&
+        this.mg.historicalRegionAt(neighbor)?.id !== this.claimedRegionID
+      ) {
+        continue;
+      }
       this.attack.addBorderTile(neighbor);
       let numOwnedByMe = 0;
       const numInner = this.map.neighbors4(neighbor, this.nbuf2);
@@ -430,6 +820,25 @@ export class AttackExecution implements Execution {
   }
 
   private handleDeadDefender() {
+    // V1.13: vanilla's low-tile defender cleanup directly conquers remaining
+    // territory and bypasses AttackExecution's tile frontier checks. Never run
+    // that cleanup from a region-bound sovereign offensive. Let a later
+    // offensive deal with another region explicitly.
+    if (this.operationalRegionID !== null && this.target.isPlayer()) {
+      return;
+    }
+
+    if (
+      this.warGoal === CasusBelliType.Containment &&
+      this.claimedRegionID !== null
+    ) {
+      // A regional containment war must never roll over into automatic total
+      // annexation after its target region has been secured.
+      if (this.target.isPlayer() && this.target.numTilesOwned() < 100) {
+        this.retreat();
+      }
+      return;
+    }
     if (!(this.target.isPlayer() && this.target.numTilesOwned() < 100)) return;
     const target: Player = this.target;
 

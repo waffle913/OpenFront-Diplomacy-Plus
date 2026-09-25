@@ -75,12 +75,102 @@ export interface PlayerState {
   /** Cumulative gold received from all sources (live). */
   goldEarned: number;
   troops: number;
+  /** Diplomacy+ V1.16 strategic-resource stocks and territorial output/min. */
+  food?: number;
+  materials?: number;
+  fuel?: number;
+  foodProduction?: number;
+  materialsProduction?: number;
+  fuelProduction?: number;
+  foodConsumption?: number;
+  materialsConsumption?: number;
+  fuelConsumption?: number;
+  resourceShortages?: { food: boolean; materials: boolean; fuel: boolean };
   isTraitor: boolean;
   traitorRemainingTicks: number;
   inDoomsdayClock: boolean;
   isDecaying: boolean;
   markedDoomsdayClockTick: number;
   betrayals: number;
+  /** Diplomacy+ state exposed by the simulation. */
+  threat?: number;
+  reputation?: number;
+  stability?: number;
+  publicSatisfaction?: number;
+  taxPolicy?: "very_low" | "low" | "normal" | "high" | "very_high";
+  mobilizationTarget?: number;
+  civilianManpowerPotential?: number;
+  militaryCapacity?: number;
+  governmentProfile?: {
+    leaderName: string;
+    style: "hawkish" | "pragmatic" | "cooperative" | "cautious";
+    generation: number;
+    termEndsAt: number;
+    tradeBias: number;
+    riskTolerance: number;
+  };
+  nationalInterests?: {
+    security: number;
+    expansion: number;
+    resourceAccess: "food" | "materials" | "fuel";
+    preferredPartners: string[];
+  };
+  diplomaticRelations?: {
+    otherID: string;
+    opinion: number;
+    trust: number;
+    perceivedThreat: number;
+  }[];
+  diplomaticMemories?: {
+    otherID: string;
+    type: string;
+    createdAt: number;
+    opinionImpact: number;
+    trustImpact: number;
+  }[];
+  tradeContracts?: {
+    id: string;
+    sellerID: string;
+    buyerID: string;
+    resource: "food" | "materials" | "fuel";
+    amountPerDelivery: number;
+    pricePerDelivery: number;
+    intervalTicks: number;
+    nextDeliveryAt: number;
+    deliveriesRemaining: number;
+    deliveredCount: number;
+    status: "active" | "completed" | "cancelled" | "failed";
+    createdAt: number;
+    lastFailure?: string;
+  }[];
+  diplomaticCrises?: {
+    id: string;
+    issuerID: string;
+    targetID: string;
+    demand: "deescalate";
+    createdAt: number;
+    responseAt: number;
+    deadlineAt: number;
+    status: "pending" | "complied" | "refused" | "cancelled";
+  }[];
+  casusBelli?: {
+    type: string;
+    targetID: string;
+    createdAt: number;
+    expiresAt: number;
+  }[];
+  warGoals?: {
+    targetID: string;
+    type: string;
+    regionID?: number;
+    initialTargetTiles?: number;
+    remainingTargetTiles?: number;
+    warScore?: number;
+  }[];
+  nonAggressionPacts?: { otherID: string; expiresAt: number }[];
+  tradeAgreements?: { otherID: string; expiresAt: number }[];
+  truces?: { otherID: string; expiresAt: number }[];
+  guarantees?: string[];
   hasSpawned: boolean;
   /** TileRef the player picked as their spawn (undefined if not yet spawned). */
   spawnTile?: number;

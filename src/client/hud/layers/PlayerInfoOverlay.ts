@@ -352,7 +352,44 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
     return { fontSize, isAllianceWrapped };
   }
 
-  private renderPlayerInfo(player: PlayerView) {
+  private renderMyCasusBelli(player: PlayerView) {
+    const now=this.game.ticks();
+    const active=player.casusBelli().filter(cb=>cb.expiresAt>now).sort((a,b)=>a.expiresAt-b.expiresAt);
+    if(active.length===0) return "";
+    return html`<div class="mt-2 border-t border-amber-300/30 pt-1.5">
+      <div class="mb-1 text-[10px] font-bold uppercase text-amber-200">Your active Casus Belli</div>
+      ${active.map(cb=>{
+        let target=cb.targetID;
+        try{target=this.game.player(cb.targetID).displayName();}catch{}
+        return html`<div class="grid grid-cols-[1fr_auto] gap-x-3 text-[10px] leading-4">
+          <span class="truncate">${cb.type.replace(/_/g, " ").toUpperCase()} → ${target}</span>
+          <span class="font-mono">${Math.max(0,cb.expiresAt-now)}t</span>
+        </div>`;
+      })}
+    </div>`;
+  }
+
+  private diplomacyPersonality(player: PlayerView): string {
+    let h = 2166136261;
+    for (const ch of player.id()) {
+      h ^= ch.charCodeAt(0);
+      h = Math.imul(h, 16777619);
+    }
+    const roll = (h >>> 0) % 100;
+    if (roll < 12) return "Belligerent";
+    if (roll < 32) return "Opportunist";
+    if (roll < 72) return "Pragmatic";
+    return "Cautious";
+  }
+
+  private relationLabel(player: PlayerView, other: PlayerView): string {
+    if (player.isAlliedWith(other)) return "Allied";
+    if (player.hasEmbargo(other)) return "Embargo";
+    if (player.targets().some((p) => p.id() === other.id())) return "Hostile / targeted";
+    return "Neutral";
+  }
+
+    private renderPlayerInfo(player: PlayerView) {
     const myPlayer = this.game.myPlayer();
     const isFriendly = myPlayer?.isFriendly(player);
     const isAllied = myPlayer?.isAlliedWith(player);

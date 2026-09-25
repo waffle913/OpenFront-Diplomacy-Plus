@@ -1013,7 +1013,7 @@ export class ClientGameRunner {
       }
       this.transport.turnComplete();
       gu.updates[GameUpdateType.Hash].forEach((hu: HashUpdate) => {
-        this.eventBus.emit(new SendHashEvent(hu.tick, hu.hash));
+        this.eventBus.emit(new SendHashEvent(hu.turnNumber ?? hu.tick, hu.hash));
       });
       this.gameView.update(gu);
       this.webglBuilder?.update(this.gameView);
@@ -1235,6 +1235,7 @@ export class ClientGameRunner {
             new SendAttackIntentEvent(
               this.gameView.owner(tile).id(),
               this.myPlayer!.troops() * this.renderer.uiState.attackRatio,
+              tile,
             ),
           );
         } else if (this.canAutoBoat(actions.buildableUnits, tile)) {
@@ -1403,6 +1404,7 @@ export class ClientGameRunner {
             new SendAttackIntentEvent(
               this.gameView.owner(tile).id(),
               this.myPlayer!.troops() * this.renderer.uiState.attackRatio,
+              tile,
             ),
           );
         }

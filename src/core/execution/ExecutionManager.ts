@@ -1,4 +1,4 @@
-import { Execution, Game } from "../game/Game";
+import { Execution, Game, WORLD_FORMATION_UNLOCK_TICK } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { ClientID, GameID, StampedIntent, Turn } from "../Schemas";
 import { simpleHash } from "../Util";
@@ -10,12 +10,15 @@ import { AttackExecution } from "./AttackExecution";
 import { BoatRetreatExecution } from "./BoatRetreatExecution";
 import { ConstructionExecution } from "./ConstructionExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
+import { DiplomacyPlusExecution } from "./DiplomacyPlusExecution";
+import { DomesticPolicyExecution } from "./DomesticPolicyExecution";
 import { DonateGoldExecution } from "./DonateGoldExecution";
 import { DonateTroopsExecution } from "./DonateTroopExecution";
 import { EmbargoAllExecution } from "./EmbargoAllExecution";
 import { EmbargoExecution } from "./EmbargoExecution";
 import { EmojiExecution } from "./EmojiExecution";
 import { MarkDisconnectedExecution } from "./MarkDisconnectedExecution";
+import { MobilizationPolicyExecution } from "./MobilizationPolicyExecution";
 import { MoveWarshipExecution } from "./MoveWarshipExecution";
 import { NationExecution } from "./NationExecution";
 import { NoOpExecution } from "./NoOpExecution";
@@ -24,6 +27,7 @@ import { QuickChatExecution } from "./QuickChatExecution";
 import { RetreatExecution } from "./RetreatExecution";
 import { SpawnExecution } from "./SpawnExecution";
 import { TargetPlayerExecution } from "./TargetPlayerExecution";
+import { TradeExecution } from "./TradeExecution";
 import { TransportShipExecution } from "./TransportShipExecution";
 import { TribeSpawner } from "./TribeSpawner";
 import { UpgradeStructureExecution } from "./UpgradeStructureExecution";
@@ -58,11 +62,23 @@ export class Executor {
     // create execution
     switch (intent.type) {
       case "attack": {
+        if (
+          !this.mg.inSpawnPhase() &&
+          this.mg.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK &&
+          intent.targetID !== null &&
+          this.mg.hasPlayer(intent.targetID)
+        ) {
+          return new NoOpExecution();
+        }
         return new AttackExecution(
           intent.troops,
           player,
           intent.targetID,
           null,
+          true,
+          intent.targetTile == null
+            ? null
+            : (this.mg.historicalRegionAt(intent.targetTile)?.id ?? null),
         );
       }
       case "cancel_attack":
@@ -80,8 +96,18 @@ export class Executor {
           intent.tile,
           true,
         );
-      case "boat":
+      case "boat": {
+        if (
+          !this.mg.inSpawnPhase() &&
+          this.mg.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK &&
+          this.mg.hasOwner(intent.dst)
+        ) {
+          const dstOwner = this.mg.owner(intent.dst);
+          if (dstOwner.isPlayer() && dstOwner !== player)
+            return new NoOpExecution();
+        }
         return new TransportShipExecution(player, intent.dst, intent.troops);
+      }
       case "allianceRequest":
         return new AllianceRequestExecution(player, intent.recipient);
       case "allianceReject":
@@ -102,6 +128,28 @@ export class Executor {
         return new DonateGoldExecution(player, intent.recipient, intent.gold);
       case "embargo":
         return new EmbargoExecution(player, intent.targetID, intent.action);
+      case "diplomacy_plus":
+        return new DiplomacyPlusExecution(
+          player,
+          intent.targetID,
+          intent.action,
+        );
+      case "trade":
+        return new TradeExecution(
+          player,
+          intent.targetID,
+          intent.action,
+          intent.direction,
+          intent.resource,
+          intent.amount,
+          intent.price,
+          intent.deliveries,
+          intent.contractID,
+        );
+      case "domestic_policy":
+        return new DomesticPolicyExecution(player, intent.taxPolicy);
+      case "military_mobilization":
+        return new MobilizationPolicyExecution(player, intent.percent);
       case "embargo_all":
         return new EmbargoAllExecution(player, intent.action);
       case "build_unit":

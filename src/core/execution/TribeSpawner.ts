@@ -117,9 +117,23 @@ export class TribeSpawner {
     }
     return new SpawnExecution(
       this.gameID,
-      new PlayerInfo(ct.name, PlayerType.Bot, null, this.random.nextID()),
+      new PlayerInfo(this.regionStyleName(ct.name), PlayerType.Bot, null, this.random.nextID()),
       tile,
     );
+  }
+
+  private regionStyleName(raw: string): string {
+    let name = raw.trim().replace(/^the\s+/i, "");
+    const words = [
+      "confederation", "confederacy", "brotherhood", "parliament", "republic",
+      "kingdom", "empire", "sultanate", "principality", "duchy", "caliphate",
+      "commonwealth", "federation", "union"
+    ];
+    for (const word of words) {
+      name = name.replace(new RegExp(`^${word}\\s+of\\s+`, "i"), "");
+      name = name.replace(new RegExp(`\\s+${word}$`, "i"), "");
+    }
+    return name.trim() || raw.trim();
   }
 
   private randomTribeName(): string {
@@ -135,13 +149,14 @@ export class TribeSpawner {
         const index = this.random.nextInt(0, available.length);
         const chosen = available[index];
         this.usedCustomTribes.add(chosen.name);
-        return chosen.name;
+        return this.regionStyleName(chosen.name);
       }
     }
 
     // Fall back to theme-based prefix + suffix names.
     const prefixIndex = this.random.nextInt(0, prefixes.length);
-    const suffixIndex = this.random.nextInt(0, suffixes.length);
-    return `${prefixes[prefixIndex]} ${suffixes[suffixIndex]}`;
+    // Diplomacy+ regions: the cultural/root name is the geographic identity.
+    // Drop governmental suffixes such as Brotherhood, Parliament, Republic, etc.
+    return prefixes[prefixIndex];
   }
 }

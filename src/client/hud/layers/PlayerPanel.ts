@@ -42,6 +42,7 @@ import {
 import { GameView, PlayerView } from "../../view";
 import { ChatModal } from "./ChatModal";
 import { EmojiTable } from "./EmojiTable";
+import { ShowHistoricalRegionEvent } from "./HistoricalRegionPanel";
 import "./PlayerModerationModal";
 import "./PlayerReportModal";
 import "./SendResourceModal";
@@ -622,12 +623,21 @@ export class PlayerPanel extends LitElement implements Controller {
       </div>
       ${this.renderTraitorBadge(other)}
       ${this.renderRelationPillIfNation(other, my)}
+      <div class="mt-2 rounded-lg border-2 border-amber-400 bg-amber-950/90 px-3 py-2 text-xs text-amber-100">
+        <div class="font-black tracking-wide text-amber-300">DIPLOMACY+ ACTIVE</div>
+        <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+          <span>Threat</span><span class="text-right font-bold">${Math.round(other.threat())}/100</span>
+          <span>Reputation</span><span class="text-right font-bold">${Math.round(other.reputation())}/100</span>
+          <span>Your CB → them</span><span class="text-right font-bold">${my.casusBelli().some((cb) => cb.targetID === other.id() && cb.expiresAt > this.g.ticks()) ? "YES" : "none"}</span>
+          <span>Their CB → you</span><span class="text-right font-bold">${other.casusBelli().some((cb) => cb.targetID === my.id() && cb.expiresAt > this.g.ticks()) ? "YES" : "none"}</span>
+        </div>
+      </div>
     `;
   }
 
   private renderResources(other: PlayerView) {
     return html`
-      <div class="mb-1 flex justify-between gap-2">
+      <div class="mb-2 flex justify-between gap-2">
         <div
           class="inline-flex items-center gap-1.5 rounded-lg bg-white/4 px-3 py-1.5 shrink-0
                     text-white w-35"
@@ -652,6 +662,95 @@ export class PlayerPanel extends LitElement implements Controller {
           <span class="text-zinc-200 whitespace-nowrap">
             ${translateText("player_panel.troops")}</span
           >
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <div class="rounded-lg bg-white/4 px-2 py-2 text-center">
+          <div class="text-[10px] text-zinc-400">FOOD</div>
+          <div class="font-bold tabular-nums">🌾 ${other.food().toFixed(1)}</div>
+          <div class="text-[10px] text-emerald-300">+${other.foodProduction().toFixed(1)}/m</div>
+        </div>
+        <div class="rounded-lg bg-white/4 px-2 py-2 text-center">
+          <div class="text-[10px] text-zinc-400">MATERIALS</div>
+          <div class="font-bold tabular-nums">🧱 ${other.materials().toFixed(1)}</div>
+          <div class="text-[10px] text-emerald-300">+${other.materialsProduction().toFixed(1)}/m</div>
+        </div>
+        <div class="rounded-lg bg-white/4 px-2 py-2 text-center">
+          <div class="text-[10px] text-zinc-400">FUEL</div>
+          <div class="font-bold tabular-nums">⛽ ${other.fuel().toFixed(1)}</div>
+          <div class="text-[10px] text-emerald-300">+${other.fuelProduction().toFixed(1)}/m</div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderRegions(other: PlayerView) {
+    const regions = this.g.historicalRegions()
+      .map((region) => ({
+        region,
+        control: region.controllers?.find((c) => c.playerID === other.id()) ?? null,
+      }))
+      .filter((x) => x.control !== null && (x.control?.share ?? 0) > 0)
+      .sort((a, b) => (b.control?.share ?? 0) - (a.control?.share ?? 0));
+
+    if (regions.length === 0) {
+      if (this.g.ticksSinceStart() < 220) {
+        return html`<div class="text-xs text-zinc-400">🗺 Regional administration forms when World Peace ends.</div>`;
+      }
+      return html`<div class="text-xs text-zinc-500">No historical region currently controlled.</div>`;
+    }
+
+    return html`
+      <div>
+        <div class="mb-2 text-[11px] font-black tracking-wider text-zinc-400">REGIONS UNDER CONTROL</div>
+        <div class="flex flex-col gap-1.5">
+          ${regions.map(({ region, control }) => html`
+            <button
+              class="rounded-lg border border-white/10 bg-white/4 px-3 py-2 text-left hover:bg-white/8 transition"
+              @click=${(e: MouseEvent) => {
+                e.stopPropagation();
+                this.hide();
+                this.eventBus.emit(new ShowHistoricalRegionEvent(region.id));
+              }}
+            >
+              <div class="flex items-center justify-between gap-3">
+                <span class="font-semibold truncate">🗺 ${region.name}</span>
+                <span class=${(control?.share ?? 0) >= 0.999 ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>${Math.round((control?.share ?? 0) * 100)}%</span>
+              </div>
+              <div class="mt-0.5 text-[10px] text-zinc-500">
+                🌾 ${(region.resources.food * (control?.share ?? 0)).toFixed(1)}/m ·
+                🧱 ${(region.resources.materials * (control?.share ?? 0)).toFixed(1)}/m ·
+                ⛽ ${(region.resources.fuel * (control?.share ?? 0)).toFixed(1)}/m
+              </div>
+            </button>
+          `)}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderDiplomacyDebug(other: PlayerView, viewer: PlayerView) {
+    const now = this.g.ticks();
+    const incoming = viewer
+      .casusBelli()
+      .find((cb) => cb.targetID === other.id() && cb.expiresAt > now);
+    const outgoing = other
+      .casusBelli()
+      .find((cb) => cb.targetID === viewer.id() && cb.expiresAt > now);
+    const formatCb = (cb: { type: string; expiresAt: number } | undefined) => {
+      if (!cb) return "None";
+      const remainingTicks = Math.max(0, cb.expiresAt - now);
+      return `${cb.type.replace(/_/g, " ")} (${remainingTicks} ticks)`;
+    };
+
+    return html`
+      <div class="rounded-xl border border-white/10 bg-white/4 px-3 py-2.5 text-sm text-zinc-100">
+        <div class="mb-2 font-bold tracking-tight">Diplomacy+ Debug</div>
+        <div class="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+          <span>Threat</span><span class="font-semibold tabular-nums">${Math.round(other.threat())}/100</span>
+          <span>Reputation</span><span class="font-semibold tabular-nums">${Math.round(other.reputation())}/100</span>
+          <span>Your CB → them</span><span class="max-w-44 text-right font-semibold capitalize">${formatCb(incoming)}</span>
+          <span>Their CB → you</span><span class="max-w-44 text-right font-semibold capitalize">${formatCb(outgoing)}</span>
         </div>
       </div>
     `;
@@ -1111,6 +1210,16 @@ export class PlayerPanel extends LitElement implements Controller {
 
                     <!-- Resources -->
                     ${this.renderResources(other)}
+
+                    <ui-divider></ui-divider>
+
+                    <!-- CK-style country -> regional drilldown -->
+                    ${this.renderRegions(other)}
+
+                    <ui-divider></ui-divider>
+
+                    <!-- Diplomacy+ temporary instrumentation -->
+                    ${this.renderDiplomacyDebug(other, viewer)}
 
                     <!-- Rocket direction toggle -->
                     ${other === viewer && !isSpectator

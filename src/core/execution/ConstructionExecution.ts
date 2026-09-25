@@ -62,6 +62,14 @@ export class ConstructionExecution implements Execution {
         this.active = false;
         return;
       }
+      const materialsCost = this.materialsCost(this.constructionType);
+      if (!this.player.removeResource("materials", materialsCost)) {
+        console.warn(
+          `cannot build ${this.constructionType}: insufficient materials`,
+        );
+        this.active = false;
+        return;
+      }
       this.structure = this.player.buildUnit(
         this.constructionType,
         spawnTile,
@@ -169,6 +177,23 @@ export class ConstructionExecution implements Execution {
         return true;
       default:
         return false;
+    }
+  }
+
+  private materialsCost(type: UnitType): number {
+    switch (type) {
+      case UnitType.City:
+        return 20;
+      case UnitType.Factory:
+      case UnitType.Port:
+        return 30;
+      case UnitType.MissileSilo:
+      case UnitType.SAMLauncher:
+        return 40;
+      case UnitType.DefensePost:
+        return 15;
+      default:
+        return 0;
     }
   }
 

@@ -66,6 +66,50 @@ describe("diffPlayerUpdate", () => {
     });
   });
 
+  it("transmits structured diplomatic relation and memory changes", () => {
+    const prev = makePlayerUpdate({
+      diplomaticRelations: [],
+      diplomaticMemories: [],
+    });
+    const next = makePlayerUpdate({
+      diplomaticRelations: [
+        { otherID: "b", opinion: 12, trust: 70, perceivedThreat: 25 },
+      ],
+      diplomaticMemories: [
+        {
+          otherID: "b",
+          type: "nap_signed",
+          createdAt: 10,
+          opinionImpact: 10,
+          trustImpact: 10,
+        },
+      ],
+    });
+    const diff = diffPlayerUpdate(prev, next)!;
+    expect(diff.diplomaticRelations).toEqual(next.diplomaticRelations);
+    expect(diff.diplomaticMemories).toEqual(next.diplomaticMemories);
+  });
+
+  it("transmits consumption and shortage changes", () => {
+    const prev = makePlayerUpdate({
+      foodConsumption: 1,
+      materialsConsumption: 1,
+      fuelConsumption: 1,
+      resourceShortages: { food: false, materials: false, fuel: false },
+    });
+    const next = makePlayerUpdate({
+      foodConsumption: 2,
+      materialsConsumption: 3,
+      fuelConsumption: 4,
+      resourceShortages: { food: true, materials: false, fuel: true },
+    });
+    const diff = diffPlayerUpdate(prev, next)!;
+    expect(diff.foodConsumption).toBe(2);
+    expect(diff.materialsConsumption).toBe(3);
+    expect(diff.fuelConsumption).toBe(4);
+    expect(diff.resourceShortages).toEqual(next.resourceShortages);
+  });
+
   it("includes every changed primitive in a single diff", () => {
     const prev = makePlayerUpdate({ betrayals: 0, isTraitor: false });
     const next = makePlayerUpdate({ betrayals: 1, isTraitor: true });
@@ -566,4 +610,14 @@ describe("diffPlayerUpdate — every scalar field must be wired up", () => {
     } as PlayerUpdate);
     expect(state.isDecaying).toBe(true);
   });
+});
+
+it("applies truce additions and removals to renderer state", () => {
+  const state = makePlayerState();
+  const truces = [{ otherID: "b", expiresAt: 1200 }];
+  applyStateUpdate(state, makePlayerUpdate({ truces }));
+  expect(state.truces).toEqual(truces);
+  expect(state.truces).not.toBe(truces);
+  applyStateUpdate(state, makePlayerUpdate({ truces: [] }));
+  expect(state.truces).toEqual([]);
 });

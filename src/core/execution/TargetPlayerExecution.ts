@@ -28,6 +28,8 @@ export class TargetPlayerExecution implements Execution {
     this.active = false;
   }
 
+  applyDuringPause(): boolean { return true; }
+
   isActive(): boolean {
     return this.active;
   }

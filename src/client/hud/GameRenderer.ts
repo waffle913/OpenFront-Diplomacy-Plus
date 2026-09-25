@@ -32,6 +32,7 @@ import { GameLeftSidebar } from "./layers/GameLeftSidebar";
 import { GameRightSidebar } from "./layers/GameRightSidebar";
 import { HeadsUpMessage } from "./layers/HeadsUpMessage";
 import { ImmunityTimer } from "./layers/ImmunityTimer";
+import { WorldFormationTimer } from "./layers/WorldFormationTimer";
 import { InGamePromo } from "./layers/InGamePromo";
 import { MainRadialMenu } from "./layers/MainRadialMenu";
 import { MultiTabModal } from "./layers/MultiTabModal";
@@ -45,6 +46,10 @@ import { SpawnTimer } from "./layers/SpawnTimer";
 import { TutorialPanel } from "./layers/TutorialPanel";
 import { UnitDisplay } from "./layers/UnitDisplay";
 import { WinModal } from "./layers/WinModal";
+import { WorldDiplomacyMonitor } from "./layers/WorldDiplomacyMonitor";
+import { DiplomacyNotification } from "./layers/DiplomacyNotification";
+import { DiplomacyPanel } from "./layers/DiplomacyPanel";
+import { HistoricalRegionPanel } from "./layers/HistoricalRegionPanel";
 import { loadAllSprites } from "./SpriteLoader";
 
 export function createRenderer(
@@ -97,6 +102,29 @@ export function createRenderer(
   }
   gameLeftSidebar.game = game;
   gameLeftSidebar.eventBus = eventBus;
+
+  let worldDiplomacyMonitor=document.querySelector("world-diplomacy-monitor") as WorldDiplomacyMonitor|null;
+  if(!(worldDiplomacyMonitor instanceof WorldDiplomacyMonitor)){worldDiplomacyMonitor=document.createElement("world-diplomacy-monitor") as WorldDiplomacyMonitor;document.body.appendChild(worldDiplomacyMonitor);}
+  worldDiplomacyMonitor.game=game;
+  let diplomacyNotification=document.querySelector("diplomacy-notification") as DiplomacyNotification|null;
+  if(!(diplomacyNotification instanceof DiplomacyNotification)){diplomacyNotification=document.createElement("diplomacy-notification") as DiplomacyNotification;document.body.appendChild(diplomacyNotification);}
+  diplomacyNotification.game=game;
+
+  let diplomacyPanel=document.querySelector("diplomacy-panel") as DiplomacyPanel|null;
+  if(!(diplomacyPanel instanceof DiplomacyPanel)){
+    diplomacyPanel=document.createElement("diplomacy-panel") as DiplomacyPanel;
+    document.body.appendChild(diplomacyPanel);
+  }
+  diplomacyPanel.game=game;
+  diplomacyPanel.eventBus=eventBus;
+
+  let historicalRegionPanel=document.querySelector("historical-region-panel") as HistoricalRegionPanel|null;
+  if(!(historicalRegionPanel instanceof HistoricalRegionPanel)){
+    historicalRegionPanel=document.createElement("historical-region-panel") as HistoricalRegionPanel;
+    document.body.appendChild(historicalRegionPanel);
+  }
+  historicalRegionPanel.game=game;
+  historicalRegionPanel.eventBus=eventBus;
 
   const controlPanel = document.querySelector("control-panel") as ControlPanel;
   if (!(controlPanel instanceof ControlPanel)) {
@@ -296,6 +324,13 @@ export function createRenderer(
   immunityTimer.game = game;
   immunityTimer.eventBus = eventBus;
 
+  let worldFormationTimer = document.querySelector("world-formation-timer") as WorldFormationTimer | null;
+  if (!(worldFormationTimer instanceof WorldFormationTimer)) {
+    worldFormationTimer = document.createElement("world-formation-timer") as WorldFormationTimer;
+    document.body.appendChild(worldFormationTimer);
+  }
+  worldFormationTimer.game = game;
+
   const inGamePromo = document.querySelector("in-game-promo") as InGamePromo;
   if (!(inGamePromo instanceof InGamePromo)) {
     console.error("in-game promo not found");
@@ -344,13 +379,19 @@ export function createRenderer(
       buildMenu,
       uiState,
       playerPanel,
+      diplomacyPanel,
     ),
     spawnTimer,
     immunityTimer,
+    worldFormationTimer,
     gameLeftSidebar,
     unitDisplay,
     gameRightSidebar,
     controlPanel,
+    worldDiplomacyMonitor,
+    diplomacyNotification,
+    diplomacyPanel,
+    historicalRegionPanel,
     playerInfo,
     winModal,
     newLobbyPrompt,

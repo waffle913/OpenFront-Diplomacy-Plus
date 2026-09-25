@@ -227,6 +227,8 @@ export class WebGLFrameBuilder {
   // player's update arrives (may take several ticks during join).
   private localPlayerSmallID = 0;
 
+  private historicalRegionsUploaded = false;
+
   constructor(private readonly view: MapRenderer) {
     this.palette = new Float32Array(PALETTE_SIZE * 2 * 4);
     this.effectPalette = new Float32Array(
@@ -303,6 +305,13 @@ export class WebGLFrameBuilder {
     this.syncSmallPlayerGlow(gameView);
     this.syncTerrainDeltas(gameView);
     this.syncNukeImpacts(gameView);
+    if (!this.historicalRegionsUploaded) {
+      const boundaryTiles = gameView.historicalRegionBoundaryTiles();
+      if (boundaryTiles) {
+        this.view.setHistoricalRegionBoundaries(boundaryTiles);
+        this.historicalRegionsUploaded = true;
+      }
+    }
     this.resolveDeadUnitExplosions(gameView);
     uploadFrameData(this.view, gameView.frameData());
   }

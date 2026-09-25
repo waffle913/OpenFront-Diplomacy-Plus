@@ -35,6 +35,7 @@ import { BarPass } from "./passes/BarPass";
 import { BorderComputePass } from "./passes/BorderComputePass";
 import { BorderStampPass } from "./passes/BorderStampPass";
 import { CoordinateGridPass } from "./passes/CoordinateGridPass";
+import { HistoricalRegionPass } from "./passes/HistoricalRegionPass";
 import { CrosshairPass } from "./passes/CrosshairPass";
 import { DefenseCoveragePass } from "./passes/DefenseCoveragePass";
 import { FalloutBloomPass } from "./passes/FalloutBloomPass";
@@ -147,6 +148,7 @@ export class GPURenderer {
   private heatManager: HeatManager;
   private affiliationPalette: AffiliationPalette;
   private coordinateGridPass: CoordinateGridPass;
+  private historicalRegionPass: HistoricalRegionPass;
   private spawnOverlayPass: SpawnOverlayPass;
   private smallPlayerGlowPass: SmallPlayerGlowPass;
   private inSpawnPhase = false;
@@ -639,6 +641,7 @@ export class GPURenderer {
       mapH,
       this.settings,
     );
+    this.historicalRegionPass = new HistoricalRegionPass(gl, mapW, mapH);
     try {
       this.gridView = window.localStorage.getItem(GRID_VIEW_KEY) === "true";
     } catch {
@@ -711,6 +714,10 @@ export class GPURenderer {
     dirtyRowMax: number,
   ): void {
     this.trailPass.applyLiveDelta(trailState, dirtyRowMin, dirtyRowMax);
+  }
+
+  setHistoricalRegionBoundaries(boundaryTiles: Uint32Array): void {
+    this.historicalRegionPass.setBoundaryTiles(boundaryTiles);
   }
 
   /** Adopt this tick's spiral nukeTrail ribbons (live refs from SpiralTrails). */
@@ -1362,6 +1369,7 @@ export class GPURenderer {
 
     this.spawnOverlayPass.draw(cam);
     if (pe.borderStamp) this.borderStampPass.draw(cam);
+    this.historicalRegionPass.draw(cam);
     if (pe.railroad) this.railroadPass.draw(cam, zoom);
     if (pe.unit) this.unitPass.drawGround(cam);
     if (pe.falloutBloom) this.bloomPass.draw(cam, this.frameTick);
@@ -1495,6 +1503,7 @@ export class GPURenderer {
     this.heatManager.dispose();
     this.affiliationPalette.dispose();
     this.coordinateGridPass.dispose();
+    this.historicalRegionPass.dispose();
     this.spawnOverlayPass.dispose();
     this.smallPlayerGlowPass.dispose();
     this.railroadPass.dispose();

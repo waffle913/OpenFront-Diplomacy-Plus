@@ -32,6 +32,7 @@ import {
   defaultReplaySpeedMultiplier,
   ReplaySpeedMultiplier,
 } from "./utilities/ReplaySpeedMultiplier";
+import { showToast } from "./Utils";
 
 // Order: 0.5, 1, 2, max (same as ReplayPanel)
 const SPEED_ORDER: ReplaySpeedMultiplier[] = [
@@ -43,6 +44,26 @@ const SPEED_ORDER: ReplaySpeedMultiplier[] = [
 
 // build a small backlog so MAX can catch up.
 const MAX_REPLAY_BACKLOG_TURNS = 60;
+
+// Live games used to require backlog === 0 before producing the next turn.
+// That coupled the clock to worker/render acknowledgement latency, so x2 and
+// MAX often ran at almost the same speed as x1. Keep a small bounded pipeline
+// for live play and give MAX a finite 4x cadence; replay MAX stays uncapped.
+export function liveTurnTiming(speed: ReplaySpeedMultiplier): {
+  intervalMultiplier: number;
+  maxBacklog: number;
+} {
+  switch (speed) {
+    case ReplaySpeedMultiplier.slow:
+      return { intervalMultiplier: 2, maxBacklog: 1 };
+    case ReplaySpeedMultiplier.normal:
+      return { intervalMultiplier: 1, maxBacklog: 2 };
+    case ReplaySpeedMultiplier.fast:
+      return { intervalMultiplier: 0.5, maxBacklog: 4 };
+    case ReplaySpeedMultiplier.fastest:
+      return { intervalMultiplier: 0.25, maxBacklog: 8 };
+  }
+}
 
 export class LocalServer {
   // All turns from the game record on replay.
@@ -89,16 +110,21 @@ export class LocalServer {
   start() {
     console.log("local server starting");
     this.turnCheckInterval = setInterval(() => {
-      const turnIntervalMs =
-        ClientEnv.turnIntervalMs() * this.replaySpeedMultiplier;
       const backlog = Math.max(0, this.turns.length - this.turnsExecuted);
       const allowReplayBacklog =
         this.replaySpeedMultiplier === ReplaySpeedMultiplier.fastest &&
         this.lobbyConfig.gameRecord !== undefined;
-      const maxBacklog = allowReplayBacklog ? MAX_REPLAY_BACKLOG_TURNS : 0;
+      const liveTiming = liveTurnTiming(this.replaySpeedMultiplier);
+      const turnIntervalMs =
+        ClientEnv.turnIntervalMs() *
+        (this.lobbyConfig.gameRecord !== undefined
+          ? this.replaySpeedMultiplier
+          : liveTiming.intervalMultiplier);
+      const maxBacklog = allowReplayBacklog
+        ? MAX_REPLAY_BACKLOG_TURNS
+        : liveTiming.maxBacklog;
 
-      const canQueueNextTurn =
-        backlog === 0 || (maxBacklog > 0 && backlog < maxBacklog);
+      const canQueueNextTurn = backlog < maxBacklog;
       if (
         canQueueNextTurn &&
         Date.now() > this.turnStartTime + turnIntervalMs
@@ -186,22 +212,30 @@ export class LocalServer {
         if (stampedIntent.paused) {
           // Pausing: add intent and end turn before pause takes effect
           this.intents.push(stampedIntent);
-          this.endTurn();
+          this.endTurn(true);
           this.paused = true;
         } else {
           // Unpausing: clear pause flag before adding intent so next turn can execute
           this.paused = false;
           this.intents.push(stampedIntent);
-          this.endTurn();
+          this.endTurn(true);
         }
         return;
       }
-      // Don't process non-pause intents during replays or while paused
-      if (this.lobbyConfig.gameRecord || this.paused) {
+      // Replays stay read-only; paused solo orders are sent immediately.
+      if (this.lobbyConfig.gameRecord || this.isReplay) {
         return;
       }
 
       this.intents.push(stampedIntent);
+      if (this.paused) {
+        this.endTurn(true);
+        showToast(
+          "Ordre transmis. Les réponses et les mouvements attendent la reprise.",
+          "green",
+          2500,
+        );
+      }
     }
     if (clientMsg.type === "hash") {
       if (!this.lobbyConfig.gameRecord) {
@@ -259,8 +293,8 @@ export class LocalServer {
 
   // endTurn in this context means the server has collected all the intents
   // and will send the turn to the client.
-  private endTurn() {
-    if (this.paused) {
+  private endTurn(actionsOnly = false) {
+    if (this.paused && !actionsOnly) {
       return;
     }
     if (this.replayTurns.length > 0) {
@@ -268,10 +302,12 @@ export class LocalServer {
         this.endGame();
         return;
       }
+      actionsOnly = this.replayTurns[this.turns.length].actionsOnly ?? false;
       this.intents = this.replayTurns[this.turns.length].intents;
     }
     const pastTurn: Turn = {
       turnNumber: this.turns.length,
+      ...(actionsOnly ? { actionsOnly: true } : {}),
       intents: this.intents,
     };
     this.turns.push(pastTurn);

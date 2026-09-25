@@ -93,6 +93,7 @@ export class SendAttackIntentEvent implements GameEvent {
   constructor(
     public readonly targetID: PlayerID | null,
     public readonly troops: number,
+    public readonly targetTile: TileRef | null = null,
   ) {}
 }
 
@@ -143,6 +144,52 @@ export class SendQuickChatEvent implements GameEvent {
     public readonly quickChatKey: string,
     public readonly target?: PlayerID,
   ) {}
+}
+
+export class SendDiplomacyPlusIntentEvent implements GameEvent {
+  constructor(
+    public readonly target: PlayerView,
+    public readonly action:
+      | "offer_nap"
+      | "guarantee"
+      | "withdraw_guarantee"
+      | "ultimatum"
+      | "economic_aid"
+      | "joint_project"
+      | "trade_agreement"
+      | "offer_white_peace"
+      | "demand_reparations"
+      | "offer_concession"
+      | "mediate_crisis",
+  ) {}
+}
+
+export class SendTradeIntentEvent implements GameEvent {
+  constructor(
+    public readonly target: PlayerView,
+    public readonly action: "offer" | "cancel",
+    public readonly direction?: "buy" | "sell",
+    public readonly resource?: "food" | "materials" | "fuel",
+    public readonly amount?: number,
+    public readonly price?: number,
+    public readonly deliveries?: number,
+    public readonly contractID?: string,
+  ) {}
+}
+
+export class SendDomesticPolicyIntentEvent implements GameEvent {
+  constructor(
+    public readonly taxPolicy:
+      | "very_low"
+      | "low"
+      | "normal"
+      | "high"
+      | "very_high",
+  ) {}
+}
+
+export class SendMobilizationIntentEvent implements GameEvent {
+  constructor(public readonly percent: number) {}
 }
 
 export class SendEmbargoIntentEvent implements GameEvent {
@@ -312,6 +359,16 @@ export class Transport {
     );
     this.subscribe(SendQuickChatEvent, (e) => this.onSendQuickChatIntent(e));
     this.subscribe(SendEmbargoIntentEvent, (e) => this.onSendEmbargoIntent(e));
+    this.subscribe(SendDiplomacyPlusIntentEvent, (e) =>
+      this.onSendDiplomacyPlusIntent(e),
+    );
+    this.subscribe(SendTradeIntentEvent, (e) => this.onSendTradeIntent(e));
+    this.subscribe(SendDomesticPolicyIntentEvent, (e) =>
+      this.onSendDomesticPolicyIntent(e),
+    );
+    this.subscribe(SendMobilizationIntentEvent, (e) =>
+      this.onSendMobilizationIntent(e),
+    );
     this.subscribe(SendEmbargoAllIntentEvent, (e) =>
       this.onSendEmbargoAllIntent(e),
     );
@@ -754,6 +811,7 @@ export class Transport {
       type: "attack",
       targetID: event.targetID,
       troops: event.troops,
+      targetTile: event.targetTile,
     });
   }
 
@@ -812,6 +870,42 @@ export class Transport {
       recipient: event.recipient.id(),
       quickChatKey: event.quickChatKey,
       target: event.target,
+    });
+  }
+
+  private onSendDiplomacyPlusIntent(event: SendDiplomacyPlusIntentEvent) {
+    this.sendIntent({
+      type: "diplomacy_plus",
+      targetID: event.target.id(),
+      action: event.action,
+    });
+  }
+
+  private onSendTradeIntent(event: SendTradeIntentEvent) {
+    this.sendIntent({
+      type: "trade",
+      targetID: event.target.id(),
+      action: event.action,
+      direction: event.direction,
+      resource: event.resource,
+      amount: event.amount,
+      price: event.price,
+      deliveries: event.deliveries,
+      contractID: event.contractID,
+    });
+  }
+
+  private onSendDomesticPolicyIntent(event: SendDomesticPolicyIntentEvent) {
+    this.sendIntent({
+      type: "domestic_policy",
+      taxPolicy: event.taxPolicy,
+    });
+  }
+
+  private onSendMobilizationIntent(event: SendMobilizationIntentEvent) {
+    this.sendIntent({
+      type: "military_mobilization",
+      percent: Math.max(0, Math.min(100, Math.round(event.percent))),
     });
   }
 

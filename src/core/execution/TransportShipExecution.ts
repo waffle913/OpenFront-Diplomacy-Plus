@@ -8,6 +8,7 @@ import {
   TerraNullius,
   Unit,
   UnitType,
+  WORLD_FORMATION_UNLOCK_TICK,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { MotionPlanRecord } from "../game/MotionPlans";
@@ -39,6 +40,7 @@ export class TransportShipExecution implements Execution {
   private motionPlanDst: TileRef | null = null;
 
   private originalOwner: Player;
+  private peaceRetreat = false;
 
   constructor(
     private attacker: Player,
@@ -89,6 +91,11 @@ export class TransportShipExecution implements Execution {
       ) {
         this.rejectIncomingAllianceRequests(targetPlayer);
       }
+    }
+
+    if (!this.mg.inSpawnPhase() && this.mg.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK && this.target.isPlayer()) {
+      this.active = false;
+      return;
     }
 
     if (this.target === this.attacker) {
@@ -167,6 +174,7 @@ export class TransportShipExecution implements Execution {
   }
 
   tick(ticks: number) {
+    if (!this.mg.inSpawnPhase() && this.mg.ticksSinceStart() >= 200 && this.mg.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK) return;
     if (this.dst === null) {
       this.active = false;
       return;
@@ -197,6 +205,16 @@ export class TransportShipExecution implements Execution {
 
     if (this.pathFinder.rebuilt) {
       this.motionPlanDst = null; // Force motion plan re-recording
+    }
+
+    // Recheck the current destination owner: peace may begin while at sea.
+    if (!this.boat.transportShipState().isRetreating) {
+      const destinationOwner = this.mg.owner(this.dst);
+      if (destinationOwner.isPlayer() && this.attacker.truceWith(destinationOwner) !== null) {
+        this.peaceRetreat = true;
+        this.boat.updateTransportShipState({ isRetreating: true });
+        this.retreatDst = null;
+      }
     }
 
     // Auto-retreat if destination was destroyed by nuke (turned to water)
@@ -237,7 +255,7 @@ export class TransportShipExecution implements Execution {
     switch (result.status) {
       case PathStatus.COMPLETE:
         if (this.mg.owner(this.dst) === this.attacker) {
-          const deaths = this.boat.troops() * (malusForRetreat / 100);
+          const deaths = this.peaceRetreat ? 0 : this.boat.troops() * (malusForRetreat / 100);
           const survivors = this.boat.troops() - deaths;
           this.attacker.addTroops(survivors);
           this.boat.delete(false);

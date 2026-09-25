@@ -87,12 +87,58 @@ function stateFromUpdate(pu: PlayerUpdate): PlayerState {
     piracyGold: Number(pu.piracyGold ?? 0n),
     goldEarned: Number(pu.goldEarned ?? 0n),
     troops: pu.troops!,
+    food: pu.food ?? 0,
+    materials: pu.materials ?? 0,
+    fuel: pu.fuel ?? 0,
+    foodProduction: pu.foodProduction ?? 0,
+    materialsProduction: pu.materialsProduction ?? 0,
+    fuelProduction: pu.fuelProduction ?? 0,
+    foodConsumption: pu.foodConsumption ?? 0,
+    materialsConsumption: pu.materialsConsumption ?? 0,
+    fuelConsumption: pu.fuelConsumption ?? 0,
+    resourceShortages: pu.resourceShortages ?? {
+      food: false,
+      materials: false,
+      fuel: false,
+    },
     isTraitor: pu.isTraitor!,
     traitorRemainingTicks: Math.max(0, pu.traitorRemainingTicks ?? 0),
     inDoomsdayClock: pu.inDoomsdayClock ?? false,
     isDecaying: pu.isDecaying ?? false,
     markedDoomsdayClockTick: pu.markedDoomsdayClockTick ?? -1,
     betrayals: pu.betrayals!,
+    threat: pu.threat ?? 0,
+    reputation: pu.reputation ?? 100,
+    stability: pu.stability ?? 70,
+    publicSatisfaction: pu.publicSatisfaction ?? 65,
+    taxPolicy: pu.taxPolicy ?? "normal",
+    mobilizationTarget: pu.mobilizationTarget ?? 100,
+    civilianManpowerPotential: pu.civilianManpowerPotential ?? 60_000,
+    militaryCapacity: pu.militaryCapacity ?? 25_000,
+    governmentProfile: pu.governmentProfile ?? {
+      leaderName: "Government 1",
+      style: "pragmatic",
+      generation: 1,
+      termEndsAt: 3600,
+      tradeBias: 0.05,
+      riskTolerance: 0.55,
+    },
+    nationalInterests: pu.nationalInterests ?? {
+      security: 30,
+      expansion: 5,
+      resourceAccess: "food",
+      preferredPartners: [],
+    },
+    diplomaticRelations: pu.diplomaticRelations?.slice() ?? [],
+    diplomaticMemories: pu.diplomaticMemories?.slice() ?? [],
+    tradeContracts: pu.tradeContracts?.slice() ?? [],
+    diplomaticCrises: pu.diplomaticCrises?.slice() ?? [],
+    casusBelli: pu.casusBelli?.slice() ?? [],
+    warGoals: pu.warGoals?.slice() ?? [],
+    nonAggressionPacts: pu.nonAggressionPacts?.slice() ?? [],
+    tradeAgreements: pu.tradeAgreements?.slice() ?? [],
+    truces: pu.truces?.slice() ?? [],
+    guarantees: pu.guarantees?.slice() ?? [],
     hasSpawned: pu.hasSpawned!,
     spawnTile: pu.spawnTile,
     lastDeleteUnitTick: pu.lastDeleteUnitTick!,
@@ -537,6 +583,42 @@ export class PlayerView {
     // accessor for game-code that still expects bigint semantics.
     return BigInt(this.state.gold);
   }
+  food(): number {
+    return this.state.food ?? 0;
+  }
+  materials(): number {
+    return this.state.materials ?? 0;
+  }
+  fuel(): number {
+    return this.state.fuel ?? 0;
+  }
+  foodProduction(): number {
+    return this.state.foodProduction ?? 0;
+  }
+  materialsProduction(): number {
+    return this.state.materialsProduction ?? 0;
+  }
+  fuelProduction(): number {
+    return this.state.fuelProduction ?? 0;
+  }
+  foodConsumption(): number {
+    return this.state.foodConsumption ?? 0;
+  }
+  materialsConsumption(): number {
+    return this.state.materialsConsumption ?? 0;
+  }
+  fuelConsumption(): number {
+    return this.state.fuelConsumption ?? 0;
+  }
+  resourceShortages() {
+    return (
+      this.state.resourceShortages ?? {
+        food: false,
+        materials: false,
+        fuel: false,
+      }
+    );
+  }
 
   /** Cumulative ship-trade revenue (for gold-rate columns). */
   tradeGold(): number {
@@ -689,6 +771,67 @@ export class PlayerView {
   }
   betrayals(): number {
     return this.state.betrayals;
+  }
+  threat(): number {
+    return this.state.threat ?? 0;
+  }
+  reputation(): number {
+    return this.state.reputation ?? 100;
+  }
+  stability(): number {
+    return this.state.stability ?? 70;
+  }
+  publicSatisfaction(): number {
+    return this.state.publicSatisfaction ?? 65;
+  }
+  taxPolicy(): "very_low" | "low" | "normal" | "high" | "very_high" {
+    return this.state.taxPolicy ?? "normal";
+  }
+  mobilizationTarget(): number {
+    return this.state.mobilizationTarget ?? 100;
+  }
+  civilianManpowerPotential(): number {
+    return this.state.civilianManpowerPotential ?? 60_000;
+  }
+  militaryCapacity(): number {
+    return this.state.militaryCapacity ?? 25_000;
+  }
+  governmentProfile() {
+    return this.state.governmentProfile!;
+  }
+  nationalInterests() {
+    return this.state.nationalInterests!;
+  }
+  diplomaticRelations() {
+    return this.state.diplomaticRelations ?? [];
+  }
+  diplomaticMemories() {
+    return this.state.diplomaticMemories ?? [];
+  }
+  tradeContracts() {
+    return this.state.tradeContracts ?? [];
+  }
+  diplomaticCrises() {
+    return this.state.diplomaticCrises ?? [];
+  }
+  casusBelli() {
+    return this.state.casusBelli ?? [];
+  }
+  warGoals() {
+    return this.state.warGoals ?? [];
+  }
+  nonAggressionPacts() {
+    return this.state.nonAggressionPacts ?? [];
+  }
+  tradeAgreements() {
+    return this.state.tradeAgreements ?? [];
+  }
+  truces() {
+    return this.state.truces ?? [];
+  }
+
+  guarantees() {
+    return this.state.guarantees ?? [];
   }
   outgoingEmojis(): EmojiMessage[] {
     return this.state.outgoingEmojis;

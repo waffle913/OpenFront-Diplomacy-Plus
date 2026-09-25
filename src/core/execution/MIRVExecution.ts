@@ -71,6 +71,15 @@ export class MirvExecution implements Execution {
   }
 
   tick(ticks: number): void {
+    if (
+      this.targetPlayer.isPlayer() &&
+      this.targetPlayer !== this.player &&
+      this.player.truceWith(this.targetPlayer) !== null
+    ) {
+      if (this.nuke?.isActive()) this.nuke.delete();
+      this.active = false;
+      return;
+    }
     if (this.nuke === null) {
       const spawn = this.player.canBuild(UnitType.MIRV, this.dst);
       if (spawn === false) {

@@ -45,6 +45,7 @@ export class MapRenderer {
   private layerVisibility = new Map<string, boolean>();
   private layerAlpha = new Map<string, number>();
   private layerDestroyedMasks = new Map<string, Uint8Array>();
+  private historicalRegionBoundaryTiles: Uint32Array | null = null;
 
   /**
    * Called after a lost WebGL context is restored and the renderer has been
@@ -87,6 +88,11 @@ export class MapRenderer {
     );
   }
 
+  setHistoricalRegionBoundaries(boundaryTiles: Uint32Array): void {
+    this.historicalRegionBoundaryTiles = boundaryTiles;
+    this.renderer?.setHistoricalRegionBoundaries(boundaryTiles);
+  }
+
   private initRenderer = () => {
     this.renderer = new GPURenderer(
       this.canvas,
@@ -98,6 +104,9 @@ export class MapRenderer {
       this.raf,
       this.caf,
     );
+    if (this.historicalRegionBoundaryTiles) {
+      this.renderer.setHistoricalRegionBoundaries(this.historicalRegionBoundaryTiles);
+    }
 
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width > 0) this.renderer.resize(rect.width, rect.height);

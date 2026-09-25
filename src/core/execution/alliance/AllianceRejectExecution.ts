@@ -39,6 +39,8 @@ export class AllianceRejectExecution implements Execution {
 
   tick(ticks: number): void {}
 
+  applyDuringPause(): boolean { return true; }
+
   isActive(): boolean {
     return this.active;
   }

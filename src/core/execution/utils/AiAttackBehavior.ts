@@ -1,4 +1,5 @@
 import {
+  CasusBelliType,
   Difficulty,
   Game,
   GameMode,
@@ -11,6 +12,7 @@ import {
   Structures,
   TerraNullius,
   UnitType,
+  WORLD_FORMATION_END_TICK,
 } from "../../game/Game";
 import { TileRef } from "../../game/GameMap";
 import { canBuildTransportShip } from "../../game/TransportShipUtils";
@@ -39,6 +41,8 @@ const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
 
 export class AiAttackBehavior {
   private botAttackTroopsSent: number = 0;
+  // Diplomacy+ V1.0: foreign policy has its own clock.
+  private lastDiplomaticReviewTick = -10_000;
 
   constructor(
     private random: PseudoRandom,
@@ -55,6 +59,18 @@ export class AiAttackBehavior {
     if (this.player === null || this.allianceBehavior === undefined) {
       throw new Error("not initialized");
     }
+
+    // WORLD FORMATION: Nations keep only their spawn/capital territory while
+    // tribes fill the Wild. Interstate war is separately locked until the
+    // final regional snapshot has completed.
+    if (!this.game.inSpawnPhase() && this.game.ticksSinceStart() < WORLD_FORMATION_END_TICK) {
+      if (this.player.type() === PlayerType.Nation) return;
+      this.sendAttack(this.game.terraNullius());
+      return;
+    }
+
+    this.reviewDiplomaticAgenda();
+    this.reviewTreatiesAndGuarantees();
 
     // Neighbor visit order matters here: the set's insertion order feeds the
     // stable troop-count sort below, so ties keep border-discovery order.
@@ -207,11 +223,22 @@ export class AiAttackBehavior {
 
       let matchesCriteria: boolean;
       if (highInterestOnly) {
-        // High-interest targeting: prioritize unowned tiles or tiles owned by bots
+        // High-interest targeting: prioritize unowned tiles or tiles owned by bots.
         matchesCriteria = !owner.isPlayer() || owner.type() === PlayerType.Bot;
       } else {
-        // Normal targeting: return unowned tiles or tiles owned by non-friendly players
-        matchesCriteria = !owner.isPlayer() || !owner.isFriendly(this.player);
+        // Diplomacy+ V0.5: long-range expeditions should have a political reason
+        // more often than not. Aggressive / disreputable states are attractive
+        // containment targets; peaceful neutral states are only selected
+        // opportunistically. Existing CBs and authorized wars always qualify.
+        if (owner.isPlayer() && !owner.isFriendly(this.player)) {
+          const hasReason =
+            this.player.isWarAuthorizedAgainst(owner) ||
+            this.player.casusBelliAgainst(owner) !== null ||
+            this.player.relation(owner) === Relation.Hostile;
+          matchesCriteria = hasReason;
+        } else {
+          matchesCriteria = !owner.isPlayer();
+        }
       }
       if (!matchesCriteria) {
         continue;
@@ -277,6 +304,19 @@ export class AiAttackBehavior {
     const bots = (): boolean => this.attackBots();
 
     const assist = (): boolean => this.assistAllies();
+
+    // Diplomacy+ V0.6: diplomacy now creates strategic objectives instead of
+    // merely decorating a target selected by the vanilla military AI. A nation
+    // can deliberately redirect its war effort toward a dangerous / infamous
+    // power, even when a weaker local victim exists.
+    const political = (): boolean => {
+      const target = this.findPoliticalTarget();
+      if (target === null) return false;
+      // Do not make every nation dogpile every tick. Political pressure is a
+      // strong preference, not an unconditional command.
+      if (!this.random.chance(3)) return false;
+      return this.sendAttack(target);
+    };
 
     const traitor = (): boolean => {
       const traitor = this.findTraitor(borderingEnemies);
@@ -371,20 +411,211 @@ export class AiAttackBehavior {
       case Difficulty.Easy:
         // So dumb, they cant even find islanders
         // prettier-ignore
-        return [nuked, bots, retaliate, assist, betray, hated, weakest];
+        return [nuked, bots, retaliate, assist, political, betray, hated, weakest];
       case Difficulty.Medium:
         // prettier-ignore
-        return [bots, nuked, retaliate, assist, betray, hated, afk, traitor, weakest, island, donate];
+        return [bots, nuked, retaliate, assist, political, betray, hated, afk, traitor, weakest, island, donate];
       case Difficulty.Hard:
         // Strong veryWeak and juicy strats after the distracting hated strat, to make the nations weaker than impossible
         // prettier-ignore
-        return [bots, retaliate, assist, betray, nuked, traitor, afk, hated, veryWeak, juicy, victim, weakest, island, donate];
+        return [bots, retaliate, assist, political, betray, nuked, traitor, afk, hated, veryWeak, juicy, victim, weakest, island, donate];
       case Difficulty.Impossible:
         // prettier-ignore
-        return [retaliate, bots, veryWeak, betray, assist, victim, traitor, juicy, afk, nuked, hated, weakest, island, donate];
+        return [retaliate, bots, political, veryWeak, betray, assist, victim, traitor, juicy, afk, nuked, hated, weakest, island, donate];
       default:
         assertNever(difficulty);
     }
+  }
+
+  /**
+   * Diplomacy+ V1.1: stable strategic personality derived from player id.
+   * Most states respect diplomatic costs. A small minority are belligerent.
+   */
+  private diplomacyPersonality(): "cautious" | "pragmatic" | "opportunist" | "belligerent" {
+    let h = 2166136261;
+    for (const ch of this.player.id()) {
+      h ^= ch.charCodeAt(0);
+      h = Math.imul(h, 16777619);
+    }
+    const roll = (h >>> 0) % 100;
+    if (roll < 12) return "belligerent";
+    if (roll < 32) return "opportunist";
+    if (roll < 72) return "pragmatic";
+    return "cautious";
+  }
+
+  private warWillingness(target: Player, hasCB: boolean): number {
+    const personality = this.diplomacyPersonality();
+    const strength = this.player.troops() / Math.max(1, target.troops());
+    const relation = this.player.relation(target);
+
+    let score = 0;
+    score += Math.min(35, Math.max(-25, (strength - 1) * 25));
+    if (relation === Relation.Hostile) score += 25;
+    else if (relation === Relation.Distrustful) score += 10;
+
+    // A legal justification helps, but is permission rather than an automatic attack order.
+    if (hasCB) score += 18;
+
+    // Diplomatic isolation makes another aggressive war less attractive.
+    score -= this.player.threat() * 0.32;
+    score -= Math.max(0, 70 - this.player.reputation()) * 0.38;
+
+    if (personality === "cautious") score -= 20;
+    if (personality === "pragmatic") score -= 5;
+    if (personality === "opportunist") score += 8;
+    if (personality === "belligerent") score += 32;
+
+    // Common-threat pressure: attacking an already notorious aggressor is easier to justify strategically.
+    if (target.threat() >= 55 || target.reputation() <= 45) score += 14;
+    if (target.threat() >= 80 || target.reputation() <= 20) score += 14;
+
+    return score;
+  }
+
+  private reviewTreatiesAndGuarantees() {
+    // Piggyback on the diplomatic review cadence; deterministic enough for simulation,
+    // sparse enough not to create treaty spam.
+    if (this.game.ticks() % 600 > 20) return;
+    const personality=this.diplomacyPersonality();
+    const nearby=this.player.nearby().filter((p):p is Player=>p.isPlayer() && p!==this.player && p.type()!==PlayerType.Bot);
+
+    // Cautious/pragmatic governments stabilize one acceptable frontier.
+    if(personality==="cautious" || personality==="pragmatic"){
+      const candidate=nearby.find((p)=>
+        !this.player.isFriendly(p) &&
+        this.player.nonAggressionPactWith(p)===null &&
+        this.player.relation(p)!==Relation.Hostile &&
+        p.threat()<45 && p.reputation()>50
+      );
+      if(candidate && this.random.chance(18)) this.player.setNonAggressionPact(candidate,3600);
+    }
+
+    // States sometimes guarantee a weaker nearby country when a notorious power is nearby.
+    const dangerous=nearby.some((p)=>p.threat()>=65 || p.reputation()<=30);
+    if(dangerous && personality!=="belligerent"){
+      const weak=nearby
+        .filter((p)=>!this.player.isFriendly(p) && !this.player.guarantees(p))
+        .sort((a,b)=>a.troops()-b.troops())[0];
+      if(weak && weak.troops()<this.player.troops()*0.75 && this.random.chance(15)){
+        this.player.setGuarantee(weak,true);
+        this.player.updateRelation(weak,6);
+        weak.updateRelation(this.player,6);
+      }
+    }
+  }
+
+  /**
+   * Diplomacy+ V1.0 diplomatic agenda: creates persistent objectives before war.
+   */
+  private reviewDiplomaticAgenda(): void {
+    const now = this.game.ticks();
+    if (now - this.lastDiplomaticReviewTick < 300) return;
+    this.lastDiplomaticReviewTick = now;
+
+    for (const other of this.game.players()) {
+      if (other !== this.player && this.player.casusBelliAgainst(other) !== null) return;
+    }
+
+    const nearby = new Set(this.player.nearby().filter((p): p is Player => p.isPlayer()));
+
+    // Detect borders that cut through one immutable historical region. This is
+    // the physical basis for territorial tension: both governments literally
+    // control tiles belonging to the same region. Build it from border tiles
+    // once per diplomatic review instead of scanning the whole world per rival.
+    const sharedRegionByNeighbor = new Map<PlayerID, number>();
+    const neighborBuf: TileRef[] = [0, 0, 0, 0];
+    for (const tile of this.player.borderTiles()) {
+      const region = this.game.historicalRegionAt(tile);
+      if (region === null) continue;
+      const count = this.game.map().neighbors4(tile, neighborBuf);
+      for (let i = 0; i < count; i++) {
+        const other = this.game.owner(neighborBuf[i]);
+        if (!other.isPlayer() || other === this.player) continue;
+        if (this.game.historicalRegionAt(neighborBuf[i])?.id !== region.id) continue;
+        sharedRegionByNeighbor.set(other.id(), region.id);
+      }
+    }
+
+    let best: Player | null = null;
+    let bestType: CasusBelliType | null = null;
+    let bestScore = -Infinity;
+
+    for (const other of this.game.players()) {
+      if (other === this.player || other.type() === PlayerType.Bot || this.player.isFriendly(other)) continue;
+      const relation = this.player.relation(other);
+      const isNearby = nearby.has(other) || this.player.sharesBorderWith(other);
+      const extreme = other.threat() >= 80 || other.reputation() <= 20;
+      const containment = other.threat() >= 55 || other.reputation() <= 45;
+      const sharedRegion = sharedRegionByNeighbor.get(other.id());
+
+      // A split historical region is itself a standing source of tension. It
+      // can generate a BorderClaim even before relations have collapsed.
+      if (sharedRegion !== undefined) {
+        const relationPressure = relation === Relation.Hostile ? 30 : relation === Relation.Distrustful ? 18 : 6;
+        const score = 72 + relationPressure;
+        if (score > bestScore) { best=other; bestType=CasusBelliType.BorderClaim; bestScore=score; }
+        continue;
+      }
+
+      if (containment && (isNearby || extreme)) {
+        const score = other.threat()*1.25 + (100-other.reputation()) + (isNearby?35:0) +
+          (relation === Relation.Hostile ? 20 : 0);
+        if (score > bestScore) { best=other; bestType=CasusBelliType.Containment; bestScore=score; }
+        continue;
+      }
+
+      if (isNearby && (relation === Relation.Hostile || relation === Relation.Distrustful)) {
+        const ratio=this.player.troops()/Math.max(1,other.troops());
+        const score=45+(relation===Relation.Hostile?25:10)+Math.min(25,ratio*8);
+        if(score>bestScore){best=other;bestType=CasusBelliType.BorderClaim;bestScore=score;}
+      }
+    }
+    if(best!==null && bestType!==null) this.player.grantCasusBelli(best,bestType,6000);
+  }
+
+  /**
+   * Diplomacy+ V0.6 strategic foreign-policy target.
+   *
+   * This deliberately looks at the whole diplomatic board. The old AI mostly
+   * picked a military target first and only then asked whether it had a CB.
+   * V0.6 reverses that for major threats: a dangerous state can become the
+   * objective because of its political behaviour.
+   */
+  private findPoliticalTarget(): Player | null {
+    let best: Player | null = null;
+    let bestScore = 0;
+
+    for (const other of this.game.players()) {
+      if (other === this.player) continue;
+      if (this.player.isFriendly(other)) continue;
+      if (this.player.nonAggressionPactWith(other) !== null) continue;
+      if (other.type() === PlayerType.Bot) continue;
+
+      const cb = this.player.casusBelliAgainst(other);
+      const hostile = this.player.relation(other) === Relation.Hostile;
+      if (cb === null && !hostile) continue;
+
+      // Political danger dominates the score. Relative military strength keeps
+      // tiny states from suicidally challenging a superpower on every cycle,
+      // while still allowing coalitions to form against a hegemon.
+      const politicalDanger =
+        other.threat() * 1.2 + (100 - other.reputation()) * 0.8;
+      const cbBonus = cb !== null ? 35 : 0;
+      const hostilityBonus = hostile ? 20 : 0;
+      const strengthRatio =
+        this.player.troops() / Math.max(1, other.troops());
+      const feasibility = Math.min(25, strengthRatio * 15);
+      const score = politicalDanger + cbBonus + hostilityBonus + feasibility;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = other;
+      }
+    }
+
+    // Below this level the normal military AI remains in charge.
+    return bestScore >= 105 ? best : null;
   }
 
   private hasNeighboringBotWithStructures(): boolean {
@@ -736,6 +967,31 @@ export class AiAttackBehavior {
       }
     }
 
+    // Diplomacy+ V1.11: a charge ending is not a war ending. If this state
+    // already has an authorized regional war whose target still owns tiles in
+    // the selected region, prioritize another charge against that same target.
+    // This turns one war into as many offensives as needed to reach the
+    // historical regional border.
+    for (const candidate of this.player.nearby()) {
+      if (!candidate.isPlayer() || this.player.isFriendly(candidate)) continue;
+      const goal = this.player.warGoalAgainst(candidate);
+      if (goal !== CasusBelliType.BorderClaim && goal !== CasusBelliType.Containment) continue;
+      const regionID = this.player.warGoalRegionAgainst(candidate);
+      if (regionID === null) continue;
+      let stillContested = false;
+      for (const tile of candidate.tiles()) {
+        if (this.game.historicalRegionAt(tile)?.id === regionID) {
+          stillContested = true;
+          break;
+        }
+      }
+      if (!stillContested) {
+        this.player.clearWarGoalRegionAgainst(candidate);
+        continue;
+      }
+      if (this.player.sharesBorderWith(candidate) && this.sendAttack(candidate, true)) return;
+    }
+
     // Choose a new enemy randomly
     const neighbors = this.player.nearby();
     for (const neighbor of this.random.shuffleArray(neighbors)) {
@@ -771,12 +1027,58 @@ export class AiAttackBehavior {
         this.player.troops() / 2,
         this.player,
         target.isPlayer() ? target.id() : this.game.terraNullius().id(),
+        null,
+        true,
+        target.isPlayer() ? this.chooseLandAttackRegion(target) : null,
       ),
     );
   }
 
   sendAttack(target: Player | TerraNullius, force = false): boolean {
     if (!force && !this.shouldAttack(target)) return false;
+
+    if (target.isPlayer() && target.type() !== PlayerType.Bot && !force) {
+      const nap=this.player.nonAggressionPactWith(target);
+      if(nap!==null && !this.player.isWarAuthorizedAgainst(target)){
+        if(this.diplomacyPersonality()!=="belligerent" || !this.random.chance(30)) return false;
+      }
+      const authorized=this.player.isWarAuthorizedAgainst(target);
+      const cb=this.player.casusBelliAgainst(target);
+      if(!authorized && cb!==null && this.game.ticks()-cb.createdAt<180) return false;
+
+      if(!authorized){
+        const personality=this.diplomacyPersonality();
+        let willingness=this.warWillingness(target,cb!==null);
+
+        // Diplomacy+ V1.2: overseas annexation must be exceptional.
+        // A containment CB against a remote country is permission to intervene,
+        // not a reason to sail across the world and annex it.
+        const overseas=!this.player.sharesBorderWith(target);
+        if(overseas){
+          willingness-=28;
+          if(cb?.type===CasusBelliType.Containment) willingness-=18;
+          if(personality==="cautious") willingness-=18;
+          else if(personality==="pragmatic") willingness-=10;
+        }
+
+        // Diplomacy+ V1.10: sovereign wars are deliberately rarer. A CB is still
+        // permission, not an instruction to attack; states now need a substantially
+        // stronger strategic case before opening another interstate war.
+        // Normal governments need a positive strategic case even when they possess a CB.
+        // Belligerents are the exception: they can gamble on unjustified expansion.
+        if(cb!==null){
+          const threshold=personality==="belligerent"?5:personality==="opportunist"?22:35;
+          if(willingness<threshold) return false;
+        }else{
+          if(personality!=="belligerent"){
+            // Rare opportunistic breach by non-belligerents, and only when the strategic case is excellent.
+            if(willingness<55 || !this.random.chance(30)) return false;
+          }else{
+            if(willingness<10 || !this.random.chance(5)) return false;
+          }
+        }
+      }
+    }
 
     if (target.isPlayer()) {
       if (this.player.sharesBorderWith(target)) {
@@ -793,6 +1095,39 @@ export class AiAttackBehavior {
         return this.sendBoatAttackToNearbyTerraNullius();
       }
     }
+  }
+
+
+  // Diplomacy+ V1.14: choose the region before creating the offensive.
+  // Existing territorial wars keep their declared objective. For a new war,
+  // choose among enemy regions that actually touch our land border, weighted
+  // by the amount of frontier contact. This prevents the first combat tile
+  // from randomly deciding the political objective.
+  private chooseLandAttackRegion(target: Player): number | null {
+    const existing = this.player.warGoalRegionAgainst(target);
+    if (existing !== null) return existing;
+
+    const map = this.game.map();
+    const counts = new Map<number, number>();
+    const nbuf = this.nbuf;
+    for (const border of this.player.borderTiles()) {
+      const n = map.neighbors4(border, nbuf);
+      for (let i = 0; i < n; i++) {
+        const tile = nbuf[i];
+        if (map.ownerID(tile) !== target.smallID()) continue;
+        const region = this.game.historicalRegionAt(tile);
+        if (region === null) continue;
+        counts.set(region.id, (counts.get(region.id) ?? 0) + 1);
+      }
+    }
+    if (counts.size === 0) return null;
+    let best: number[] = [];
+    let bestCount = -1;
+    for (const [regionID, count] of counts) {
+      if (count > bestCount) { bestCount = count; best = [regionID]; }
+      else if (count === bestCount) best.push(regionID);
+    }
+    return best.length === 1 ? best[0] : this.random.randElement(best);
   }
 
   private hasLandBorderWithTerraNullius(): boolean {
@@ -1060,11 +1395,18 @@ export class AiAttackBehavior {
       return false;
     }
 
+    const targetRegionID = target.isPlayer()
+      ? this.chooseLandAttackRegion(target)
+      : null;
+
     this.game.addExecution(
       new AttackExecution(
         troops,
         this.player,
         target.isPlayer() ? target.id() : this.game.terraNullius().id(),
+        null,
+        true,
+        targetRegionID,
       ),
     );
     return true;

@@ -121,6 +121,8 @@ export class GameView implements GameMap {
   private _firstPopulate = true;
 
   private _myPlayer: PlayerView | null = null;
+  private _historicalRegions: NonNullable<GameUpdateViewData["historicalRegions"]> = [];
+  private _historicalRegionBoundaryTiles: Uint32Array | null = null;
 
   // ── populateFrame dirty flags ──────────────────────────────────────────
   // The derived structures below only depend on rarely-changing player
@@ -277,7 +279,19 @@ export class GameView implements GameMap {
     return (this.lastUpdate?.pendingTurns ?? 0) > 1;
   }
 
+  historicalRegions(): readonly NonNullable<GameUpdateViewData["historicalRegions"]>[number][] {
+    return this._historicalRegions;
+  }
+  historicalRegionBoundaryTiles(): Uint32Array | null {
+    return this._historicalRegionBoundaryTiles;
+  }
+
   public update(gu: GameUpdateViewData) {
+    if (gu.historicalRegions) {
+      this._historicalRegions = gu.historicalRegions;
+      console.log(`[Diplomacy+] Received ${gu.historicalRegions.length} historical region summaries`);
+    }
+    if (gu.historicalRegionBoundaryTiles) this._historicalRegionBoundaryTiles = gu.historicalRegionBoundaryTiles;
     // Unit set/ownership changes below; rebuild the owner index on demand.
     this._unitsByOwnerStale = true;
 

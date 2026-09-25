@@ -192,12 +192,63 @@ describe("GameRightSidebar end timer warnings", () => {
     await sidebar.updateComplete;
 
     expect(
-      sidebar.querySelector("[data-game-timer]")?.textContent?.trim(),
-    ).toBe("00:30");
-    expect(sidebar.querySelector("[data-game-timer]")?.className).toBe("");
+      sidebar.querySelector("[data-world-date]")?.textContent?.trim(),
+    ).toBe("31 janvier · an 1");
+    expect(sidebar.querySelector("[data-game-timer]")).toBeNull();
     expect(sidebar.querySelector("aside")?.className).not.toContain(
       "game-end-timer-sidebar-flash",
     );
     expect(toasts).toHaveLength(0);
+  });
+});
+
+describe("GameRightSidebar world date", () => {
+  afterEach(() => { document.body.innerHTML = ""; });
+
+  it("starts at year 1 and does not advance while choosing a spawn", async () => {
+    const { sidebar } = createSidebar({ inSpawnPhase: true, elapsedSeconds: 500 });
+    sidebar.tick();
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("1 janvier · an 1");
+  });
+
+  it("follows simulation progress, stays fixed on pause and rolls into a new year", async () => {
+    const { sidebar, state } = createSidebar({ maxTimerValue: null });
+    state.elapsedSeconds = 364;
+    sidebar.tick();
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("31 décembre · an 1");
+    // A paused simulation supplies the same elapsed value on every UI refresh.
+    sidebar.tick();
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("31 décembre · an 1");
+    state.elapsedSeconds = 365;
+    sidebar.tick();
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("1 janvier · an 2");
+    // Faster simulation can advance multiple days between UI refreshes.
+    state.elapsedSeconds = 375;
+    sidebar.tick();
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("11 janvier · an 2");
+  });
+
+  it("keeps the date frozen after the game ends", async () => {
+    const { sidebar, state, eventBus } = createSidebar({ maxTimerValue: null });
+    state.elapsedSeconds = 31;
+    sidebar.tick();
+    await sidebar.updateComplete;
+    eventBus.emit(new SendWinnerEvent(undefined, {}));
+    state.elapsedSeconds = 80;
+    sidebar.tick();
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("1 février · an 1");
+  });
+
+  it("retains the separate countdown in time-limited games", async () => {
+    const { sidebar, setRemainingSeconds } = createSidebar();
+    await setRemainingSeconds(60);
+    expect(sidebar.querySelector("[data-world-date]")?.textContent?.trim()).toBe("2 mars · an 1");
+    expect(sidebar.querySelector("[data-game-timer]")?.textContent?.trim()).toBe("01:00");
   });
 });

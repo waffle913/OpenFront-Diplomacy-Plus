@@ -20,12 +20,14 @@ import {
   PlayerInfo,
   PlayerProfile,
   PlayerType,
+  WORLD_FORMATION_END_TICK,
+  WORLD_FORMATION_UNLOCK_TICK,
   UnitType,
 } from "./game/Game";
 import { createGame } from "./game/GameImpl";
 import { TileRef } from "./game/GameMap";
 import { GameMapLoader } from "./game/GameMapLoader";
-import { ErrorUpdate, GameUpdateViewData } from "./game/GameUpdates";
+import { ErrorUpdate, GameUpdateType, GameUpdateViewData } from "./game/GameUpdates";
 import { createNationsForGame } from "./game/NationCreation";
 import { loadTerrainMap as loadGameMap } from "./game/TerrainMapLoader";
 import { PseudoRandom } from "./PseudoRandom";
@@ -95,6 +97,8 @@ export class GameRunner {
   private turns: Turn[] = [];
   private currTurn = 0;
   private isExecuting = false;
+  private historicalRegionsSent = false;
+  private lastHistoricalRegionTerritoryVersion = -1;
 
   private playerViewData: Record<PlayerID, NameViewData> = {};
 
@@ -108,6 +112,8 @@ export class GameRunner {
     if (this.game.config().gameConfig().gameType !== GameType.Singleplayer) {
       this.game.addExecution(new SpawnTimerExecution());
     }
+    // Everyone spawns normally. Nations exist from tick zero, but their territorial
+    // expansion is locked during World Formation; tribes alone fill Terra Nullius.
     if (this.game.config().spawnNations()) {
       this.game.addExecution(...this.execManager.nationExecutions());
     }
@@ -115,9 +121,14 @@ export class GameRunner {
       this.game.addExecution(...this.execManager.spawnPlayers());
     }
     if (this.game.config().bots() > 0) {
-      this.game.addExecution(
-        ...this.execManager.spawnTribes(this.game.config().bots()),
-      );
+      // Diplomacy+ regional formation: solo worlds start denser so the
+      // eventual historical regions are smaller and more numerous.
+      const configuredTribes = this.game.config().bots();
+      const tribeCount =
+        this.game.config().gameConfig().gameType === GameType.Singleplayer
+          ? Math.min(configuredTribes * 2, 800)
+          : configuredTribes;
+      this.game.addExecution(...this.execManager.spawnTribes(tribeCount));
     }
     this.game.addExecution(new WinCheckExecution());
     if (this.game.config().doomsdayClockConfig().enabled) {
@@ -143,9 +154,8 @@ export class GameRunner {
     }
     this.isExecuting = true;
 
-    this.game.addExecution(
-      ...this.execManager.createExecs(this.turns[this.currTurn]),
-    );
+    const turn = this.turns[this.currTurn];
+    const executions = this.execManager.createExecs(turn);
     this.currTurn++;
 
     const wasInSpawnPhase = this.game.inSpawnPhase();
@@ -154,7 +164,15 @@ export class GameRunner {
 
     try {
       const startTime = performance.now();
-      updates = this.game.executeNextTick();
+      if (turn.actionsOnly) {
+        updates = this.game.executePausedActions(executions);
+      } else {
+        this.game.addExecution(...executions);
+        updates = this.game.executeNextTick();
+      }
+      for (const hash of updates[GameUpdateType.Hash]) {
+        hash.turnNumber = this.currTurn - 1;
+      }
       const endTime = performance.now();
       tickExecutionDuration = endTime - startTime;
     } catch (error: unknown) {
@@ -207,8 +225,63 @@ export class GameRunner {
     const packedNukeImpacts =
       nukeImpactTiles.length > 0 ? new Uint32Array(nukeImpactTiles) : undefined;
 
+    // Diplomacy+ V1.16: boundaries are still transported only once as the
+    // compact sparse tile list. Region summaries are lightweight and refresh
+    // at most once/second after territorial changes so country/region dossiers
+    // can show current control without a full tile-to-region texture.
+    const regionsReady =
+      this.game.ticksSinceStart() >= WORLD_FORMATION_UNLOCK_TICK &&
+      this.game.historicalRegions().length > 0;
+    const territoryVersion = this.game.territoryVersion();
+    const shouldSendHistoricalRegions =
+      regionsReady &&
+      (!this.historicalRegionsSent ||
+        (this.game.ticks() % 10 === 0 &&
+          territoryVersion !== this.lastHistoricalRegionTerritoryVersion));
+    const historicalRegions = shouldSendHistoricalRegions
+      ? this.game.historicalRegions().filter((r) => r.tileCount >= 8).map((r) => {
+          const control = this.game.historicalRegionControl(r.id);
+          const dominant = control[0];
+          return {
+            id: r.id,
+            name: r.name,
+            founderID: r.founderID,
+            tileCount: r.tileCount,
+            representativeTile: r.representativeTile,
+            resources: { ...r.resources },
+            dominantOwnerID: dominant?.player.id(),
+            dominantShare: dominant?.share,
+            controllers: control.map((c) => ({
+              playerID: c.player.id(),
+              tiles: c.tiles,
+              share: c.share,
+            })),
+          };
+        })
+      : undefined;
+    if (shouldSendHistoricalRegions) {
+      this.lastHistoricalRegionTerritoryVersion = territoryVersion;
+    }
+
+    let historicalRegionBoundaryTiles: Uint32Array | undefined;
+    if (regionsReady && !this.historicalRegionsSent) {
+      const ids = this.game.historicalRegionIds();
+      const boundary: number[] = [];
+      const w = this.game.width(), h = this.game.height();
+      for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
+        const tile=y*w+x, id=ids[tile];
+        if (id===0) continue;
+        if ((x>0&&ids[tile-1]!==id)||(x+1<w&&ids[tile+1]!==id)||
+            (y>0&&ids[tile-w]!==id)||(y+1<h&&ids[tile+w]!==id)) boundary.push(tile);
+      }
+      historicalRegionBoundaryTiles=new Uint32Array(boundary);
+      this.historicalRegionsSent=true;
+      console.log(`[Diplomacy+] compact regional boundary: ${boundary.length} tiles`);
+    }
     this.callBack({
       tick: this.game.ticks(),
+      ...(historicalRegions ? { historicalRegions } : {}),
+      ...(historicalRegionBoundaryTiles ? { historicalRegionBoundaryTiles } : {}),
       packedTileUpdates,
       ...(packedMotionPlans ? { packedMotionPlans } : {}),
       ...(packedPlayerUpdates ? { packedPlayerUpdates } : {}),
@@ -253,6 +326,8 @@ export class GameRunner {
       buildableUnits: units === null ? [] : player.buildableUnits(tile, units),
       canSendEmojiAllPlayers: player.canSendEmoji(AllPlayers),
       canEmbargoAll: player.canEmbargoAll(),
+      historicalRegionID:
+        tile === null ? undefined : this.game.historicalRegionAt(tile)?.id,
     } as PlayerActions;
 
     if (tile !== null && this.game.hasOwner(tile)) {

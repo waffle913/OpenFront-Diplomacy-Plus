@@ -8,6 +8,7 @@ import {
   PlayerID,
   PlayerType,
   Relation,
+  StrategicResource,
   TerrainType,
   UnitType,
 } from "../game/Game";
@@ -22,6 +23,7 @@ import { NationNukeBehavior } from "./nation/NationNukeBehavior";
 import { NationStructureBehavior } from "./nation/NationStructureBehavior";
 import { NationWarshipBehavior } from "./nation/NationWarshipBehavior";
 import { SpawnExecution } from "./SpawnExecution";
+import { TradeExecution } from "./TradeExecution";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
 
 export class NationExecution implements Execution {
@@ -172,6 +174,10 @@ export class NationExecution implements Execution {
       return;
     }
 
+    if (ticks % 600 === this.player.smallID() % 600) {
+      this.maybeProposeTrade();
+    }
+
     if (!this.behaviorsInitialized) {
       this.initializeBehaviors();
       this.attackBehavior.forceSendAttack(this.mg.terraNullius());
@@ -207,6 +213,71 @@ export class NationExecution implements Execution {
     this.attackBehavior.maybeAttack();
     this.warshipBehavior.counterWarshipInfestation();
     this.nukeBehavior.maybeSendNuke();
+  }
+
+  private maybeProposeTrade(): void {
+    if (this.player === null) return;
+    const resources: StrategicResource[] = ["food", "materials", "fuel"];
+    const production = this.mg.resourceProduction(this.player);
+    const consumption = this.player.resourceConsumption();
+    const wanted = resources
+      .map((resource) => ({
+        resource,
+        balance: production[resource] - consumption[resource],
+        reserveMinutes:
+          this.player!.resources()[resource] /
+          Math.max(0.1, consumption[resource]),
+      }))
+      .sort(
+        (a, b) => a.balance - b.balance || a.reserveMinutes - b.reserveMinutes,
+      )[0];
+    if (wanted.balance >= 0 && wanted.reserveMinutes >= 180) return;
+    if (
+      this.player
+        .tradeContracts()
+        .some(
+          (contract) =>
+            contract.status === "active" &&
+            contract.buyerID === this.player!.id() &&
+            contract.resource === wanted.resource,
+        )
+    ) {
+      return;
+    }
+
+    const seller = this.mg
+      .players()
+      .filter(
+        (candidate) =>
+          candidate !== this.player &&
+          candidate.type() === PlayerType.Nation &&
+          candidate.canTrade(this.player!) &&
+          candidate.resources()[wanted.resource] >
+            candidate.resourceConsumption()[wanted.resource] * 60,
+      )
+      .sort(
+        (a, b) =>
+          b.resources()[wanted.resource] - a.resources()[wanted.resource],
+      )[0];
+    if (seller === undefined) return;
+    const unitPrice: Record<StrategicResource, number> = {
+      food: 10,
+      materials: 16,
+      fuel: 24,
+    };
+    const amount = 20;
+    this.mg.addExecution(
+      new TradeExecution(
+        this.player,
+        seller.id(),
+        "offer",
+        "buy",
+        wanted.resource,
+        amount,
+        amount * unitPrice[wanted.resource],
+        3,
+      ),
+    );
   }
 
   private initializeBehaviors(): void {

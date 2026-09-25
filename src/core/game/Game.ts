@@ -126,6 +126,10 @@ export {
   type SpecialModifierKey,
 } from "./Maps.gen";
 
+export const WORLD_FORMATION_END_TICK = 200;
+// Keep borders politically frozen for two extra seconds while the final T=20 map is copied in small chunks.
+export const WORLD_FORMATION_UNLOCK_TICK = 220;
+
 export enum GameType {
   Singleplayer = "Singleplayer",
   Public = "Public",
@@ -331,6 +335,106 @@ export enum Relation {
   Friendly = 3,
 }
 
+export type DiplomaticMemoryType =
+  | "nap_signed"
+  | "nap_broken"
+  | "guarantee_given"
+  | "guarantee_withdrawn"
+  | "war_started"
+  | "peace_signed"
+  | "trade_started"
+  | "trade_completed"
+  | "trade_failed"
+  | "economic_aid"
+  | "joint_project"
+  | "crisis_complied"
+  | "crisis_refused";
+
+export interface DiplomaticMemory {
+  otherID: PlayerID;
+  type: DiplomaticMemoryType;
+  createdAt: Tick;
+  opinionImpact: number;
+  trustImpact: number;
+}
+
+export type StrategicResource = "food" | "materials" | "fuel";
+
+export type TradeContractStatus =
+  | "active"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export type TradeFailureReason =
+  | "insufficient_stock"
+  | "insufficient_funds"
+  | "partner_unavailable"
+  | "embargo";
+
+export interface TradeContract {
+  id: string;
+  sellerID: PlayerID;
+  buyerID: PlayerID;
+  resource: StrategicResource;
+  amountPerDelivery: number;
+  pricePerDelivery: number;
+  intervalTicks: number;
+  nextDeliveryAt: Tick;
+  deliveriesRemaining: number;
+  deliveredCount: number;
+  status: TradeContractStatus;
+  createdAt: Tick;
+  lastFailure?: TradeFailureReason;
+}
+
+export interface DiplomaticCrisis {
+  id: string;
+  issuerID: PlayerID;
+  targetID: PlayerID;
+  demand: "deescalate";
+  createdAt: Tick;
+  responseAt: Tick;
+  deadlineAt: Tick;
+  status: "pending" | "complied" | "refused" | "cancelled";
+}
+
+export type GovernmentStyle =
+  | "hawkish"
+  | "pragmatic"
+  | "cooperative"
+  | "cautious";
+
+export interface GovernmentProfile {
+  leaderName: string;
+  style: GovernmentStyle;
+  generation: number;
+  termEndsAt: Tick;
+  tradeBias: number;
+  riskTolerance: number;
+}
+
+export interface NationalInterests {
+  security: number;
+  expansion: number;
+  resourceAccess: StrategicResource;
+  preferredPartners: PlayerID[];
+}
+
+export enum CasusBelliType {
+  Retaliation = "retaliation",
+  BorderClaim = "border_claim",
+  TreatyViolation = "treaty_violation",
+  Containment = "containment",
+}
+
+export interface CasusBelli {
+  type: CasusBelliType;
+  targetID: PlayerID;
+  createdAt: Tick;
+  expiresAt: Tick;
+}
+
 export class Nation {
   constructor(
     public readonly spawnCell: Cell | undefined,
@@ -379,6 +483,7 @@ export enum PlayerType {
 export interface Execution {
   isActive(): boolean;
   activeDuringSpawnPhase(): boolean;
+  applyDuringPause?(): boolean;
   init(mg: Game, ticks: number): void;
   tick(ticks: number): void;
 }
@@ -638,6 +743,31 @@ export interface Player {
   gold(): Gold;
   addGold(toAdd: Gold, tile?: TileRef): void;
   removeGold(toRemove: Gold): Gold;
+  resources(): StrategicResources;
+  resourceConsumption(): StrategicResources;
+  addResources(toAdd: StrategicResources): void;
+  removeResource(resource: StrategicResource, amount: number): boolean;
+  tradeContracts(): readonly TradeContract[];
+  addTradeContract(contract: TradeContract): boolean;
+  cancelTradeContract(contractID: string): boolean;
+  processTradeContracts(): void;
+  provideEconomicAid(other: Player, amount: Gold): boolean;
+  launchJointProject(other: Player): boolean;
+  diplomaticCrises(): readonly DiplomaticCrisis[];
+  startDiplomaticCrisis(other: Player): boolean;
+  processDiplomaticCrises(): void;
+  offerCrisisConcession(issuer: Player): boolean;
+  mediateCrisisInvolving(other: Player): boolean;
+  stability(): number;
+  publicSatisfaction(): number;
+  taxPolicy(): TaxPolicy;
+  setTaxPolicy(policy: TaxPolicy): void;
+  taxIncomeMultiplierPercent(): number;
+  updateDomesticPolitics(): void;
+  mobilizationTarget(): number;
+  setMobilizationTarget(percent: number): void;
+  governmentProfile(): GovernmentProfile;
+  nationalInterests(): NationalInterests;
 
   // Cumulative trade revenue, surfaced on the live PlayerUpdate so clients can
   // compute per-source gold rates (leaderboard "Ship/Train Trade Gold/min").
@@ -699,9 +829,51 @@ export interface Player {
   nearby(): (Player | TerraNullius)[];
   sharesBorderWith(other: Player | TerraNullius): boolean;
   relation(other: Player): Relation;
+  relationScore(other: Player): number;
   allRelationsSorted(): { player: Player; relation: Relation }[];
   updateRelation(other: Player, delta: number): void;
+  trust(other: Player): number;
+  changeTrust(other: Player, delta: number): void;
+  perceivedThreat(other: Player, sharesBorder?: boolean): number;
+  rememberDiplomaticEvent(
+    other: Player,
+    type: DiplomaticMemoryType,
+    opinionImpact: number,
+    trustImpact: number,
+  ): void;
+  diplomaticMemories(): readonly DiplomaticMemory[];
   decayRelations(): void;
+  casusBelliAgainst(other: Player): CasusBelli | null;
+  grantCasusBelli(
+    other: Player,
+    type: CasusBelliType,
+    durationTicks?: number,
+  ): void;
+  consumeCasusBelli(other: Player): CasusBelli | null;
+  isWarAuthorizedAgainst(other: Player): boolean;
+  authorizeWarAgainst(
+    other: Player,
+    durationTicks?: number,
+    warGoal?: CasusBelliType | null,
+  ): void;
+  warGoalAgainst(other: Player): CasusBelliType | null;
+  warGoalRegionAgainst(other: Player): number | null;
+  setWarGoalRegionAgainst(other: Player, regionID: number): void;
+  clearWarGoalRegionAgainst(other: Player): void;
+  endWarAgainst(other: Player): void;
+  concludePeaceWith(other: Player, truceTicks?: number): void;
+  truceWith(other: Player): Tick | null;
+  nonAggressionPactWith(other: Player): Tick | null;
+  setNonAggressionPact(other: Player, durationTicks?: number): void;
+  breakNonAggressionPact(other: Player): void;
+  tradeAgreementWith(other: Player): Tick | null;
+  setTradeAgreement(other: Player, durationTicks?: number): void;
+  guarantees(other: Player): boolean;
+  setGuarantee(other: Player, enabled: boolean): void;
+  threat(): number;
+  reputation(): number;
+  changeThreat(delta: number): void;
+  changeReputation(delta: number): void;
   isOnSameTeam(other: Player): boolean;
   // Either allied or on same team.
   isFriendly(other: Player, treatAFKFriendly?: boolean): boolean;
@@ -778,6 +950,23 @@ export interface Player {
   bestTransportShipSpawn(tile: TileRef): TileRef | false;
 }
 
+export interface StrategicResources {
+  food: number;
+  materials: number;
+  fuel: number;
+}
+
+export type TaxPolicy = "very_low" | "low" | "normal" | "high" | "very_high";
+
+export interface HistoricalRegion {
+  id: number;
+  name: string;
+  founderID: PlayerID;
+  tileCount: number;
+  representativeTile: TileRef;
+  resources: StrategicResources;
+}
+
 export interface Game extends GameMap {
   // Map & Dimensions
   isOnMap(cell: Cell): boolean;
@@ -785,6 +974,14 @@ export interface Game extends GameMap {
   height(): number;
   map(): GameMap;
   miniMap(): GameMap;
+  historicalRegions(): readonly HistoricalRegion[];
+  historicalRegionIds(): Uint32Array;
+  historicalRegionAt(tile: TileRef): HistoricalRegion | null;
+  historicalRegionControl(
+    regionID: number,
+  ): { player: Player; tiles: number; share: number }[];
+  resourceProduction(player: Player): StrategicResources;
+  territoryVersion(): number;
   forEachTile(fn: (tile: TileRef) => void): void;
   // Zero-allocation neighbor iteration (cardinal only), in the same N, S, W, E
   // order as neighbors().
@@ -828,9 +1025,12 @@ export interface Game extends GameMap {
 
   // Game State
   ticks(): Tick;
+  ticksSinceStart(): Tick;
   inSpawnPhase(): boolean;
   endSpawnPhase(): void;
   executeNextTick(): GameUpdates;
+  executePausedActions(executions: Execution[]): GameUpdates;
+  executions(): Execution[];
   drainPackedTileUpdates(): Uint32Array;
   recordMotionPlan(record: MotionPlanRecord): void;
   drainPackedMotionPlans(): Uint32Array | null;
@@ -948,6 +1148,8 @@ export interface PlayerActions {
   canSendEmojiAllPlayers: boolean;
   canEmbargoAll?: boolean;
   interaction?: PlayerInteraction;
+  /** Diplomacy+ V1.16: immutable historical region under the inspected tile. */
+  historicalRegionID?: number;
 }
 
 export interface BuildableUnit {

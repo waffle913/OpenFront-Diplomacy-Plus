@@ -50,6 +50,8 @@ export class BreakAllianceExecution implements Execution {
     this.active = false;
   }
 
+  applyDuringPause(): boolean { return true; }
+
   isActive(): boolean {
     return this.active;
   }

@@ -3,6 +3,7 @@ import { customElement, state } from "lit/decorators.js";
 import { assetUrl } from "../../../core/AssetUrls";
 import { EventBus } from "../../../core/EventBus";
 import { GameType } from "../../../core/game/Game";
+import { formatWorldDate } from "../../../core/game/WorldCalendar";
 import { createNextLobby } from "../../Api";
 import { ClientEnv } from "../../ClientEnv";
 import "../../components/DoomsdayClockPanel";
@@ -56,6 +57,9 @@ export class GameRightSidebar extends LitElement implements Controller {
   @state()
   private timer: number = 0;
 
+  @state()
+  private worldDate: string = formatWorldDate(0);
+
   // CrazyGames provides its own fullscreen control in the game frame, and the
   // desktop shell owns its window mode from the settings Display tab, so hide
   // ours on both.
@@ -89,6 +93,7 @@ export class GameRightSidebar extends LitElement implements Controller {
       this.game?.config()?.gameConfig()?.gameType === GameType.Private;
     this._isVisible = true;
     this.hasShownOneMinuteWarning = false;
+    this.worldDate = formatWorldDate(0);
 
     this.eventBus.on(SpawnBarVisibleEvent, (e) => {
       this.spawnBarVisible = e.visible;
@@ -143,6 +148,14 @@ export class GameRightSidebar extends LitElement implements Controller {
     if (!this.isLobbyCreator && this.game.myPlayer()?.isLobbyCreator()) {
       this.isLobbyCreator = true;
       this.requestUpdate();
+    }
+
+    if (!this.hasWinner) {
+      // elapsedGameSeconds derives from ticksSinceStart, so pause and speed
+      // changes affect the calendar in exactly the same way as the simulation.
+      this.worldDate = formatWorldDate(
+        this.game.inSpawnPhase() ? 0 : this.game.elapsedGameSeconds() * 10,
+      );
     }
 
     if (this.game.inSpawnPhase()) {
@@ -303,6 +316,9 @@ export class GameRightSidebar extends LitElement implements Controller {
     if (this.game === undefined) return html``;
 
     const maxTimerValue = this.game.config().gameConfig().maxTimerValue;
+    const showCountdown =
+      (maxTimerValue !== undefined && maxTimerValue !== null) ||
+      (this.game.inSpawnPhase() && this.game.config().gameConfig().gameType !== GameType.Singleplayer);
     const isEndTimerActive =
       maxTimerValue !== undefined &&
       maxTimerValue !== null &&
@@ -368,8 +384,15 @@ export class GameRightSidebar extends LitElement implements Controller {
         @contextmenu=${(e: Event) => e.preventDefault()}
       >
         <!-- In-game time -->
-        <div data-game-timer class=${timerClass}>
-          ${this.secondsToHms(this.timer)}
+        <div class="flex flex-col items-center leading-tight">
+          <div data-world-date class="whitespace-nowrap text-sm font-semibold"
+            title="Calendrier du monde · suit la simulation et s'arrête en pause">
+            ${this.worldDate}
+          </div>
+          ${showCountdown ? html`<div data-game-timer class=${timerClass}
+            title=${this.game.inSpawnPhase() ? "Début de partie" : "Temps de partie restant"}>
+            ${this.secondsToHms(this.timer)}
+          </div>` : ""}
         </div>
 
         <!-- Buttons -->

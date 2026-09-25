@@ -1022,16 +1022,15 @@ export class Config {
   }
 
   maxTroops(player: Player | PlayerView): number {
+    if (
+      player.type() === PlayerType.Human &&
+      this.hasInfiniteTroopsFor(player)
+    ) {
+      return 1_000_000_000;
+    }
+    const civilianPotential = this.civilianManpowerPotential(player);
     const maxTroops =
-      player.type() === PlayerType.Human && this.hasInfiniteTroopsFor(player)
-        ? 1_000_000_000
-        : 2 * (pow(player.numTilesOwned(), 0.6) * 1000 + 50000) +
-          player
-            .units(UnitType.City)
-            .filter((u) => !u.isUnderConstruction())
-            .map((city) => city.level())
-            .reduce((a, b) => a + b, 0) *
-            this.cityTroopIncrease();
+      civilianPotential * this.militaryInfrastructureRatio(player);
 
     if (player.type() === PlayerType.Bot) {
       return maxTroops / 3;
@@ -1049,19 +1048,57 @@ export class Config {
       case Difficulty.Hard:
         return maxTroops * 1; // Like humans
       case Difficulty.Impossible:
-        return maxTroops * 1.25;
+        return Math.min(civilianPotential, maxTroops * 1.25);
       default:
         assertNever(this._gameConfig.difficulty);
     }
   }
 
+  civilianManpowerPotential(player: Player | PlayerView): number {
+    const cityLevels = player
+      .units(UnitType.City)
+      .filter((u) => !u.isUnderConstruction())
+      .reduce((sum, city) => sum + city.level(), 0);
+    // A small national baseline prevents a cityless country from becoming
+    // inert. Territory contributes only a tightly capped administrative pool;
+    // population growth comes overwhelmingly from cities.
+    const territorialBaseline = Math.min(
+      15_000,
+      Math.pow(Math.max(1, player.numTilesOwned()), 0.25) * 1_500,
+    );
+    return 60_000 + territorialBaseline + cityLevels * this.cityTroopIncrease();
+  }
+
+  militaryInfrastructureRatio(player: Player | PlayerView): number {
+    const baseLevels = player
+      .units(UnitType.DefensePost)
+      .filter((u) => !u.isUnderConstruction())
+      .reduce((sum, base) => sum + base.level(), 0);
+    return Math.min(1, 0.4 + baseLevels * 0.15);
+  }
+
   troopIncreaseRate(player: Player | PlayerView): number {
     const max = this.maxTroops(player);
+    const mobilizationTarget =
+      "mobilizationTarget" in player ? player.mobilizationTarget() : 100;
+    const target = max * (mobilizationTarget / 100);
+
+    if (player.troops() > target) {
+      return -Math.min(
+        player.troops() - target,
+        Math.max(10, (player.troops() - target) * 0.01),
+      );
+    }
 
     let toAdd = 10 + pow(player.troops(), 0.73) / 4;
 
-    const ratio = 1 - player.troops() / max;
+    const ratio = 1 - player.troops() / Math.max(1, target);
     toAdd *= ratio;
+    const baseLevels = player
+      .units(UnitType.DefensePost)
+      .filter((u) => !u.isUnderConstruction())
+      .reduce((sum, base) => sum + base.level(), 0);
+    toAdd *= Math.min(2.5, 0.65 + baseLevels * 0.2);
 
     if (player.type() === PlayerType.Bot) {
       toAdd *= 0.5;
@@ -1086,7 +1123,7 @@ export class Config {
       }
     }
 
-    return Math.min(player.troops() + toAdd, max) - player.troops();
+    return Math.min(player.troops() + toAdd, target) - player.troops();
   }
 
   goldAdditionRate(player: Player | PlayerView): Gold {

@@ -123,6 +123,9 @@ function sendGameUpdateBatch(gameUpdates: GameUpdateViewData[]): void {
     if (gu.packedNukeImpacts) {
       transfers.push(gu.packedNukeImpacts.buffer);
     }
+    if (gu.historicalRegionBoundaryTiles) {
+      transfers.push(gu.historicalRegionBoundaryTiles.buffer);
+    }
   }
 
   ctx.postMessage(

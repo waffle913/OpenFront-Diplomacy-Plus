@@ -106,6 +106,39 @@ export class NationAllianceBehavior {
     if (this.hasTooManyAlliances(otherPlayer)) {
       return false;
     }
+    // Diplomacy+ V0.5: reputation now matters to alliance politics.
+    // Easy nations mostly ignore it; smarter nations become increasingly
+    // reluctant to legitimize a highly aggressive / disreputable state.
+    const { difficulty } = this.game.config().gameConfig();
+    const diplomaticPariah =
+      otherPlayer.threat() >= 70 || otherPlayer.reputation() <= 35;
+    if (diplomaticPariah) {
+      switch (difficulty) {
+        case Difficulty.Easy:
+          break;
+        case Difficulty.Medium:
+          if (!this.random.chance(4)) return false;
+          break;
+        case Difficulty.Hard:
+          if (!this.random.chance(8)) return false;
+          break;
+        case Difficulty.Impossible:
+          return false;
+        default:
+          assertNever(difficulty);
+      }
+    }
+    // Diplomacy+ V0.6: states facing the same expansionist power have a
+    // concrete reason to cooperate. This is intentionally evaluated before
+    // ordinary bilateral relations, so containment blocs can emerge instead of
+    // every nation independently feeding itself into the map leader.
+    if (this.hasSharedStrategicThreat(otherPlayer)) {
+      if (!isResponse && this.random.chance(4)) {
+        this.emojiBehavior.sendEmoji(otherPlayer, EMOJI_HANDSHAKE);
+      }
+      return true;
+    }
+
     // Before caring about the relation, first check if the otherPlayer is a threat
     // Easy (dumb) nations are blinded by hatred, they don't care about threats, they care about the relation
     // Impossible (smart) nations on the other hand are analyzing the facts
@@ -146,6 +179,36 @@ export class NationAllianceBehavior {
     }
     // Accept if we are similarly strong
     return this.isAlliancePartnerSimilarlyStrong(otherPlayer);
+  }
+
+  private hasSharedStrategicThreat(otherPlayer: Player): boolean {
+    if (otherPlayer === this.player || this.player.isFriendly(otherPlayer)) {
+      return false;
+    }
+
+    for (const threat of this.game.players()) {
+      if (threat === this.player || threat === otherPlayer) continue;
+      if (threat.type() === PlayerType.Bot) continue;
+      if (threat.threat() < 65 && threat.reputation() > 35) continue;
+      if (this.player.isFriendly(threat) || otherPlayer.isFriendly(threat)) {
+        continue;
+      }
+
+      // A shared menace matters most when it is already a major military power
+      // or when both states have an explicit/hostile diplomatic reason to fear it.
+      const majorPower =
+        threat.troops() >= Math.max(this.player.troops(), otherPlayer.troops()) * 0.8;
+      const weCare =
+        this.player.casusBelliAgainst(threat) !== null ||
+        this.player.relation(threat) === Relation.Hostile ||
+        threat.threat() >= 80;
+      const theyCare =
+        otherPlayer.casusBelliAgainst(threat) !== null ||
+        otherPlayer.relation(threat) === Relation.Hostile ||
+        threat.threat() >= 80;
+      if (majorPower && weCare && theyCare) return true;
+    }
+    return false;
   }
 
   private hasTooManyAlliances(otherPlayer: Player): boolean {

@@ -28,6 +28,8 @@ export class EmbargoAllExecution implements Execution {
 
   tick(_: number): void {}
 
+  applyDuringPause(): boolean { return true; }
+
   isActive(): boolean {
     return false;
   }

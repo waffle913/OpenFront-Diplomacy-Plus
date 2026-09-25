@@ -62,8 +62,12 @@ export function createNationsForGame(
   }
   // If nations count is explicitly set, use that exact count
   if (typeof configNations === "number") {
+    const requestedNationCount =
+      gameStart.config.gameType === GameType.Singleplayer
+        ? Math.min(configNations * 2, 400)
+        : configNations;
     return createRandomNations(
-      configNations,
+      requestedNationCount,
       manifestNations,
       additionalNations,
       toNation,
@@ -95,6 +99,12 @@ export function createNationsForGame(
     }
   }
 
+  if (gameStart.config.gameType === GameType.Singleplayer) {
+    return createRandomNations(
+      Math.min(manifestNations.length * 2, 400),
+      manifestNations, additionalNations, toNation, random,
+    );
+  }
   return manifestNations.map(toNation);
 }
 

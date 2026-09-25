@@ -2,150 +2,97 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="proprietary/images/OpenFrontLogoDark.svg">
     <source media="(prefers-color-scheme: light)" srcset="proprietary/images/OpenFrontLogo.svg">
-    <img src="proprietary/images/OpenFrontLogo.svg" alt="OpenFrontIO Logo" width="300">
+    <img src="proprietary/images/OpenFrontLogo.svg" alt="OpenFront Diplomacy+" width="320">
   </picture>
 </p>
 
-[OpenFront.io](https://openfront.io/) is an online real-time strategy game focused on territorial control and alliance building. Players compete to expand their territory, build structures, and form strategic alliances in various maps based on real-world geography.
+<h1 align="center">OpenFront — Diplomacy+</h1>
 
-This is a fork/rewrite of WarFront.io. Credit to https://github.com/WarFrontIO.
+<p align="center">
+  Un mod géopolitique pour OpenFront, inspiré par Europa Universalis IV et Geopolitical Simulator.
+</p>
 
-![CI](https://github.com/openfrontio/OpenFrontIO/actions/workflows/ci.yml/badge.svg)
-[![Crowdin](https://badges.crowdin.net/openfront-mls/localized.svg)](https://crowdin.com/project/openfront-mls)
-[![CLA assistant](https://cla-assistant.io/readme/badge/openfrontio/OpenFrontIO)](https://cla-assistant.io/openfrontio/OpenFrontIO)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Assets: CC BY-SA 4.0](https://img.shields.io/badge/Assets-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
+<p align="center">
+  <img alt="État du projet" src="https://img.shields.io/badge/%C3%A9tat-prototype%20jouable-d6a84b">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6.x-3178c6">
+  <a href="LICENSE"><img alt="Licence AGPL v3" src="https://img.shields.io/badge/licence-AGPL%20v3-blue"></a>
+</p>
 
-## License
+> [!IMPORTANT]
+> Diplomacy+ est un projet communautaire non officiel. Il n'est ni développé, ni approuvé, ni maintenu par l'équipe officielle d'OpenFront.
 
-OpenFront source code is licensed under the **GNU Affero General Public License v3.0**
+## Présentation
 
-Current copyright notices appear in:
+Diplomacy+ transforme la partie solo d'OpenFront en bac à sable géopolitique. Les pays disposent d'intérêts nationaux, d'une mémoire diplomatique, d'une économie stratégique et d'objectifs de guerre territoriaux. Le joueur dirige son pays depuis un conseil d'État inspiré des jeux de grande stratégie.
 
-- Footer: "© OpenFront and Contributors"
-- Loading screen: "© OpenFront and Contributors"
+Le mod reste compatible avec les différentes cartes d'OpenFront : les systèmes politiques sont attachés aux nations et aux villes, pas à une carte précise.
 
-Modified versions must preserve these notices in reasonably visible locations.
+## Fonctionnalités actuelles
 
-See the [LICENSE](LICENSE) for complete requirements.
+- menu permanent **🏛 Gestion** avec les onglets Pays, Fiscalité, Armées, Diplomatie, Commerce, Crises et Gouvernement ;
+- calendrier fictif et vitesses de jeu adaptées aux parties longues ;
+- ordres diplomatiques utilisables pendant la pause, avec réponses traitées lorsque le temps reprend ;
+- opinions, confiance, menace, réputation et mémoire diplomatique ;
+- pactes de non-agression, garanties, alliances, embargos et crises internationales ;
+- commerce bilatéral de nourriture, matériaux et carburant ;
+- fiscalité à cinq niveaux, stabilité et satisfaction publique ;
+- objectifs de guerre régionaux et contrôle des régions historiques ;
+- armée fondée sur le vivier national d'OpenFront ;
+- potentiel humain principalement fourni par les villes ;
+- capacité militaire et vitesse de mobilisation améliorées par les postes de défense ;
+- curseur de mobilisation nationale de 0 à 100 % ;
+- comportement politique déterministe des nations et interface prête pour un futur pilote LLM.
 
-For asset licensing, see [LICENSE-ASSETS](LICENSE-ASSETS).  
-For license history, see [LICENSING.md](LICENSING.md).
+La [roadmap détaillée](DIPLOMACY_ROADMAP.md) décrit les systèmes terminés, ceux à équilibrer et les prochaines étapes.
 
-## 🌟 Features
+## Installation pour développer
 
-- **Real-time Strategy Gameplay**: Expand your territory and engage in strategic battles
-- **Alliance System**: Form alliances with other players for mutual defense
-- **Multiple Maps**: Play across various geographical regions including Europe, Asia, Africa, and more
-- **Resource Management**: Balance your expansion with defensive capabilities
-- **Cross-platform**: Play in any modern web browser
+Prérequis : Node.js, npm 10.9.2 ou plus récent et une copie d'OpenFront sur Steam.
 
-## 📋 Prerequisites
-
-- [npm](https://www.npmjs.com/) (v10.9.2 or higher)
-- A modern web browser (Chrome, Firefox, Edge, etc.)
-
-## 🚀 Installation
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/openfrontio/OpenFrontIO.git
-   cd OpenFrontIO
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   npm run inst
-   ```
-
-   Do NOT use `npm install` nor `npm i` but instead use our `npm run inst`. It runs the safer `npm ci --ignore-scripts` to install dependencies exactly according to the versions in `package-lock.json` and doesn't run scripts. This can prevent being hit by a supply chain attack.
-
-## 🎮 Running the Game
-
-### Development Mode
-
-Run both the client and server in development mode with live reloading:
-
-```bash
-npm run dev
+```powershell
+git clone https://github.com/waffle913/OpenFront-Diplomacy-Plus.git
+cd OpenFront-Diplomacy-Plus
+npm run inst
+npm run build-prod
 ```
 
-This will:
+Le build de production est créé dans `static/`. Pour tester manuellement sur la version Steam actuelle, fermez complètement OpenFront puis copiez le contenu de `static/` dans :
 
-- Start the webpack dev server for the client
-- Launch the game server with development settings
-- Open the game in your default browser (to disable this behavior, set `SKIP_BROWSER_OPEN=true` in your environment)
-
-### Client Only
-
-To run just the client with hot reloading:
-
-```bash
-npm run start:client
+```text
+C:\Program Files (x86)\Steam\steamapps\common\OpenFront\resources\renderer
 ```
 
-### Server Only
+Le client Steam possède un système de mise à jour interne qui peut prendre la priorité sur ce dossier. L'installateur local automatisé et une archive prête à jouer seront ajoutés dans une prochaine version. Pour le moment, l'installation Steam est destinée aux développeurs capables de sauvegarder et restaurer `resources/app.asar` et `resources/renderer`.
 
-To run just the server with development settings:
+## Lancer les tests
 
-```bash
-npm run start:server-dev
+```powershell
+npx tsc --noEmit
+npx vitest run tests/PoliticalSystems.test.ts tests/TradeContracts.test.ts tests/DiplomacyRegional.test.ts tests/client/DiplomacyPanel.test.ts tests/client/LocalServerSpeed.test.ts
 ```
 
-### Connecting to staging or production backends
+Le benchmark de référence utilise :
 
-Sometimes it's useful to connect to production servers when replaying a game, testing user profiles, purchases, or login flow.
-
-> To replay a production game, make sure you're on the same commit that the game you want to replay was executed on, you can find the `gitCommit` value via `https://api.openfront.io/game/[gameId]`.
-> Unfinished games cannot be replayed on localhost.
-
-To connect to staging api servers:
-
-```bash
-npm run dev:staging
+```powershell
+npx tsx tests/perf/fullgame/FullGamePerf.ts
 ```
 
-To connect to production api servers:
+## Organisation du projet
 
-```bash
-npm run dev:prod
-```
+- `src/core` — simulation, économie, diplomatie, guerre et mobilisation ;
+- `src/client/hud/layers/DiplomacyPanel.ts` — conseil d'État et menus de gestion ;
+- `src/core/execution/PoliticalDecisionAdapter.ts` — frontière entre décisions politiques et simulation, prévue pour accueillir un adaptateur LLM ;
+- `tests` — tests déterministes des nouveaux systèmes ;
+- `DIPLOMACY_ROADMAP.md` — feuille de route et protocole de test en partie.
 
-## 🛠️ Development Tools
+## Crédits et licences
 
-- **Format code**:
+Diplomacy+ est basé sur [OpenFrontIO](https://github.com/openfrontio/OpenFrontIO), lui-même issu de WarFront.io. Merci aux équipes et contributeurs de ces projets.
 
-  ```bash
-  npm run format
-  ```
+Le code source reste sous **GNU Affero General Public License v3.0**. Les avis de copyright visibles d'OpenFront doivent être conservés. Consultez [LICENSE](LICENSE) et [LICENSING.md](LICENSING.md).
 
-- **Lint code with Oxlint and ESLint**:
+Les ressources ont leurs propres conditions, détaillées dans [LICENSE-ASSETS](LICENSE-ASSETS). Toute redistribution doit les respecter.
 
-  ```bash
-  npm run lint
-  ```
+## État du projet
 
-- **Lint and fix code with Oxlint and ESLint**:
-
-  ```bash
-  npm run lint:fix
-  ```
-
-- **Testing**
-  ```bash
-  npm test
-  ```
-
-## 🏗️ Project Structure
-
-- `/src/client` - Frontend game client
-- `/src/core` - Deterministic game simulation
-- `/src/server` - Backend game server
-- `/resources` - Static assets (images, maps, etc.)
-- `/zbin` - Compact binary wire format for zod schemas (self-contained, zod-only)
-
-## 🤝 Contributing
-
-Contributions and translations are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, the approved-issue process, project governance, and translation info.
+Cette version est une candidate de test. Les systèmes sont jouables et couverts par des tests ciblés, mais l'équilibrage économique, militaire et diplomatique doit encore être validé sur des parties longues. Les rapports de bugs et les cas de contournement des règles sont particulièrement utiles.

@@ -183,6 +183,18 @@ export class NukeExecution implements Execution {
   }
 
   tick(ticks: number): void {
+    if (this.mg.hasOwner(this.dst)) {
+      const currentTarget = this.mg.owner(this.dst);
+      if (
+        currentTarget.isPlayer() &&
+        currentTarget !== this.player &&
+        this.player.truceWith(currentTarget) !== null
+      ) {
+        if (this.nuke?.isActive()) this.nuke.delete();
+        this.active = false;
+        return;
+      }
+    }
     if (this.nuke === null) {
       const spawn = this.player.canBuild(this.nukeType, this.dst);
       if (spawn === false) {

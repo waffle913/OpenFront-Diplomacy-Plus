@@ -9,6 +9,7 @@ import {
   PlayerID,
   PlayerType,
   SamLauncherState,
+  StrategicResources,
   Team,
   Tick,
   TrainType,
@@ -18,8 +19,21 @@ import {
 } from "./Game";
 import { TileRef } from "./GameMap";
 
+export interface HistoricalRegionSummary {
+  id: number;
+  name: string;
+  founderID: PlayerID;
+  tileCount: number;
+  representativeTile: TileRef;
+  resources: StrategicResources;
+  dominantOwnerID?: PlayerID;
+  dominantShare?: number;
+  controllers?: { playerID: PlayerID; tiles: number; share: number }[];
+}
 export interface GameUpdateViewData {
   tick: number;
+  historicalRegions?: HistoricalRegionSummary[];
+  historicalRegionBoundaryTiles?: Uint32Array;
   updates: GameUpdates;
   /**
    * Packed tile updates as `[tileRef, state]` uint32 pairs.
@@ -225,6 +239,13 @@ export interface AttackUpdate {
  * applyStateUpdate() in GameUpdateUtils.ts — otherwise it is only ever sent on
  * the first emission and later changes are silently dropped.
  */
+export interface CasusBelliUpdate {
+  type: string;
+  targetID: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export interface PlayerUpdate {
   type: GameUpdateType.Player;
   id: PlayerID;
@@ -252,6 +273,17 @@ export interface PlayerUpdate {
   /** Cumulative gold received from all sources (workers, trade, ...). */
   goldEarned?: Gold;
   troops?: number;
+  /** Diplomacy+ V1.16 strategic-resource stocks and territorial output/min. */
+  food?: number;
+  materials?: number;
+  fuel?: number;
+  foodProduction?: number;
+  materialsProduction?: number;
+  fuelProduction?: number;
+  foodConsumption?: number;
+  materialsConsumption?: number;
+  fuelConsumption?: number;
+  resourceShortages?: { food: boolean; materials: boolean; fuel: boolean };
   allies?: number[];
   embargoes?: Set<PlayerID>;
   isTraitor?: boolean;
@@ -268,6 +300,81 @@ export interface PlayerUpdate {
   hasSpawned?: boolean;
   spawnTile?: TileRef;
   betrayals?: number;
+  /** Diplomacy+ debug/state fields. */
+  threat?: number;
+  reputation?: number;
+  stability?: number;
+  publicSatisfaction?: number;
+  taxPolicy?: "very_low" | "low" | "normal" | "high" | "very_high";
+  mobilizationTarget?: number;
+  civilianManpowerPotential?: number;
+  militaryCapacity?: number;
+  governmentProfile?: {
+    leaderName: string;
+    style: "hawkish" | "pragmatic" | "cooperative" | "cautious";
+    generation: number;
+    termEndsAt: Tick;
+    tradeBias: number;
+    riskTolerance: number;
+  };
+  nationalInterests?: {
+    security: number;
+    expansion: number;
+    resourceAccess: "food" | "materials" | "fuel";
+    preferredPartners: PlayerID[];
+  };
+  diplomaticRelations?: {
+    otherID: PlayerID;
+    opinion: number;
+    trust: number;
+    perceivedThreat: number;
+  }[];
+  diplomaticMemories?: {
+    otherID: PlayerID;
+    type: string;
+    createdAt: Tick;
+    opinionImpact: number;
+    trustImpact: number;
+  }[];
+  tradeContracts?: {
+    id: string;
+    sellerID: PlayerID;
+    buyerID: PlayerID;
+    resource: "food" | "materials" | "fuel";
+    amountPerDelivery: number;
+    pricePerDelivery: number;
+    intervalTicks: number;
+    nextDeliveryAt: Tick;
+    deliveriesRemaining: number;
+    deliveredCount: number;
+    status: "active" | "completed" | "cancelled" | "failed";
+    createdAt: Tick;
+    lastFailure?: string;
+  }[];
+  diplomaticCrises?: {
+    id: string;
+    issuerID: PlayerID;
+    targetID: PlayerID;
+    demand: "deescalate";
+    createdAt: Tick;
+    responseAt: Tick;
+    deadlineAt: Tick;
+    status: "pending" | "complied" | "refused" | "cancelled";
+  }[];
+  casusBelli?: CasusBelliUpdate[];
+  /** Diplomacy+ active war goals keyed by target PlayerID. */
+  warGoals?: {
+    targetID: PlayerID;
+    type: string;
+    regionID?: number;
+    initialTargetTiles?: number;
+    remainingTargetTiles?: number;
+    warScore?: number;
+  }[];
+  nonAggressionPacts?: { otherID: PlayerID; expiresAt: Tick }[];
+  tradeAgreements?: { otherID: PlayerID; expiresAt: Tick }[];
+  truces?: { otherID: PlayerID; expiresAt: Tick }[];
+  guarantees?: PlayerID[];
   lastDeleteUnitTick?: Tick;
   isLobbyCreator?: boolean;
 }
@@ -351,6 +458,7 @@ export interface WinUpdate {
 }
 
 export interface HashUpdate {
+  turnNumber?: number;
   type: GameUpdateType.Hash;
   tick: Tick;
   hash: number;

@@ -11,6 +11,7 @@ import { ChatIntegration } from "./ChatIntegration";
 import { EmojiTable } from "./EmojiTable";
 import { PlayerActionHandler } from "./PlayerActionHandler";
 import { PlayerPanel } from "./PlayerPanel";
+import { DiplomacyPanel } from "./DiplomacyPanel";
 import { RadialMenu, RadialMenuConfig } from "./RadialMenu";
 import {
   centerButtonElement,
@@ -51,6 +52,7 @@ export class MainRadialMenu implements Controller {
     private buildMenu: BuildMenu,
     private uiState: UIState,
     private playerPanel: PlayerPanel,
+    private diplomacyPanel: DiplomacyPanel,
   ) {
     const menuConfig: RadialMenuConfig = {
       centerButtonIcon: swordIcon,
@@ -147,6 +149,7 @@ export class MainRadialMenu implements Controller {
       emojiTable: this.emojiTable,
       playerActionHandler: this.playerActionHandler,
       playerPanel: this.playerPanel,
+      diplomacyPanel: this.diplomacyPanel,
       chatIntegration: this.chatIntegration,
       uiState: this.uiState,
       closeMenu: () => this.closeMenu(),

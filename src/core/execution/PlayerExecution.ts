@@ -7,6 +7,7 @@ import {
   PlayerType,
   Structures,
   UnitType,
+  WORLD_FORMATION_UNLOCK_TICK,
 } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
 import {
@@ -44,7 +45,13 @@ export class PlayerExecution implements Execution {
   }
 
   tick(ticks: number) {
-    this.player.decayRelations();
+    // Preserve the same diplomatic drift while batching it once per simulated
+    // second. Running every country's whole relation map every tick became
+    // quadratic as diplomatic contacts accumulated.
+    if (ticks % 10 === this.player.smallID() % 10) {
+      this.player.decayRelations();
+    }
+    this.player.processDiplomaticCrises();
     for (const u of this.player.units()) {
       if (!Structures.has(u.type())) {
         continue;
@@ -86,8 +93,49 @@ export class PlayerExecution implements Execution {
 
     const troopInc = this.config.troopIncreaseRate(this.player);
     this.player.addTroops(troopInc);
-    const goldFromWorkers = this.config.goldAdditionRate(this.player);
+    const goldFromWorkers =
+      (this.config.goldAdditionRate(this.player) *
+        BigInt(this.player.taxIncomeMultiplierPercent())) /
+      100n;
     this.player.addGold(goldFromWorkers);
+
+    // Diplomacy+ V1.16: credit territorial strategic-resource production once
+    // per simulated second (10 ticks). Rates are stored as units/minute.
+    if (
+      !this.mg.inSpawnPhase() &&
+      this.mg.ticksSinceStart() >= WORLD_FORMATION_UNLOCK_TICK &&
+      ticks % 10 === this.player.smallID() % 10
+    ) {
+      const production = this.mg.resourceProduction(this.player);
+      const consumption = this.player.resourceConsumption();
+      this.player.addResources({
+        food: (production.food - consumption.food) / 60,
+        materials: (production.materials - consumption.materials) / 60,
+        fuel: (production.fuel - consumption.fuel) / 60,
+      });
+      this.player.processTradeContracts();
+      const militaryUpkeep = BigInt(Math.ceil(this.player.troops() / 1_000));
+      if (this.player.removeGold(militaryUpkeep) < militaryUpkeep) {
+        this.player.removeTroops(Math.max(1, this.player.troops() * 0.001));
+      }
+      if (ticks % 600 === this.player.smallID() % 600) {
+        this.player.updateDomesticPolitics();
+      }
+      if (
+        this.player.resources().food <= 0 &&
+        consumption.food > production.food
+      ) {
+        this.player.removeTroops(Math.max(1, this.player.troops() * 0.0005));
+      }
+      if (
+        this.player.resources().fuel <= 0 &&
+        consumption.fuel > production.fuel
+      ) {
+        for (const attack of this.player.outgoingAttacks()) {
+          attack.setTroops(Math.max(0, attack.troops() * 0.998));
+        }
+      }
+    }
 
     // Record stats
     this.mg.stats().goldWork(this.player, goldFromWorkers);

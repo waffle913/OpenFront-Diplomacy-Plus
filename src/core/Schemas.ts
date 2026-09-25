@@ -45,6 +45,10 @@ export type Intent =
   | DonateTroopsIntent
   | BuildUnitIntent
   | EmbargoIntent
+  | DiplomacyPlusIntent
+  | TradeIntent
+  | DomesticPolicyIntent
+  | MilitaryMobilizationIntent
   | QuickChatIntent
   | MoveWarshipIntent
   | MarkDisconnectedIntent
@@ -70,6 +74,12 @@ export type EmojiIntent = z.infer<typeof EmojiIntentSchema>;
 export type DonateGoldIntent = z.infer<typeof DonateGoldIntentSchema>;
 export type DonateTroopsIntent = z.infer<typeof DonateTroopIntentSchema>;
 export type EmbargoIntent = z.infer<typeof EmbargoIntentSchema>;
+export type DiplomacyPlusIntent = z.infer<typeof DiplomacyPlusIntentSchema>;
+export type TradeIntent = z.infer<typeof TradeIntentSchema>;
+export type DomesticPolicyIntent = z.infer<typeof DomesticPolicyIntentSchema>;
+export type MilitaryMobilizationIntent = z.infer<
+  typeof MilitaryMobilizationIntentSchema
+>;
 export type BuildUnitIntent = z.infer<typeof BuildUnitIntentSchema>;
 export type UpgradeStructureIntent = z.infer<
   typeof UpgradeStructureIntentSchema
@@ -618,6 +628,8 @@ export const AttackIntentSchema = z.object({
   type: z.literal("attack"),
   targetID: MappedID.nullable(),
   troops: zb.float({ min: 0 }).nullable(),
+  // Diplomacy+ V1.14: clicked enemy tile chooses the target historical region.
+  targetTile: zb.uint().nullable().optional(),
 });
 
 export const SpawnIntentSchema = z.object({
@@ -661,6 +673,54 @@ export const EmojiIntentSchema = z.object({
     select: (v) => (v === AllPlayers ? 1 : 0),
   }),
   emoji: EmojiSchema,
+});
+
+export const DiplomacyPlusIntentSchema = z.object({
+  type: z.literal("diplomacy_plus"),
+  targetID: MappedID,
+  action: z.union([
+    z.literal("offer_nap"),
+    z.literal("guarantee"),
+    z.literal("withdraw_guarantee"),
+    z.literal("ultimatum"),
+    z.literal("economic_aid"),
+    z.literal("joint_project"),
+    z.literal("trade_agreement"),
+    z.literal("offer_white_peace"),
+    z.literal("demand_reparations"),
+    z.literal("offer_concession"),
+    z.literal("mediate_crisis"),
+  ]),
+});
+
+export const TradeIntentSchema = z.object({
+  type: z.literal("trade"),
+  targetID: MappedID,
+  action: z.union([z.literal("offer"), z.literal("cancel")]),
+  direction: z.union([z.literal("buy"), z.literal("sell")]).optional(),
+  resource: z
+    .union([z.literal("food"), z.literal("materials"), z.literal("fuel")])
+    .optional(),
+  amount: zb.float({ min: 1, max: 1000 }).optional(),
+  price: zb.uint({ min: 1, max: 1000000 }).optional(),
+  deliveries: zb.uint({ min: 1, max: 24 }).optional(),
+  contractID: z.string().max(128).optional(),
+});
+
+export const DomesticPolicyIntentSchema = z.object({
+  type: z.literal("domestic_policy"),
+  taxPolicy: z.union([
+    z.literal("very_low"),
+    z.literal("low"),
+    z.literal("normal"),
+    z.literal("high"),
+    z.literal("very_high"),
+  ]),
+});
+
+export const MilitaryMobilizationIntentSchema = z.object({
+  type: z.literal("military_mobilization"),
+  percent: zb.uint({ min: 0, max: 100 }),
 });
 
 export const EmbargoIntentSchema = z.object({
@@ -780,6 +840,10 @@ export const IntentSchema = z.discriminatedUnion("type", [
   BuildUnitIntentSchema,
   UpgradeStructureIntentSchema,
   EmbargoIntentSchema,
+  DiplomacyPlusIntentSchema,
+  TradeIntentSchema,
+  DomesticPolicyIntentSchema,
+  MilitaryMobilizationIntentSchema,
   EmbargoAllIntentSchema,
   MoveWarshipIntentSchema,
   QuickChatIntentSchema,
@@ -809,6 +873,8 @@ export const ADMIN_BOT_CLIENT_ID: ClientID = "ADMINBOT";
 
 export const TurnSchema = z.object({
   turnNumber: zb.uint(),
+  // Apply player orders without advancing simulation time (solo active pause).
+  actionsOnly: z.boolean().optional(),
   intents: StampedIntentSchema.array(),
   // The hash of the game state at the end of the turn.
   hash: zb.float().nullable().optional(),

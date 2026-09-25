@@ -22,6 +22,8 @@ import { ChatIntegration } from "./ChatIntegration";
 import { EmojiTable } from "./EmojiTable";
 import { PlayerActionHandler } from "./PlayerActionHandler";
 import { PlayerPanel } from "./PlayerPanel";
+import { DiplomacyPanel } from "./DiplomacyPanel";
+import { ShowHistoricalRegionEvent } from "./HistoricalRegionPanel";
 import { TooltipItem } from "./RadialMenu";
 
 import { EventBus } from "../../../core/EventBus";
@@ -52,6 +54,7 @@ export interface MenuElementParams {
   emojiTable: EmojiTable;
   playerActionHandler: PlayerActionHandler;
   playerPanel: PlayerPanel;
+  diplomacyPanel?: DiplomacyPanel;
   chatIntegration: ChatIntegration;
   eventBus: EventBus;
   uiState?: UIState;
@@ -376,15 +379,67 @@ const infoEmojiElement: MenuElement = {
   },
 };
 
+export const diplomacyMenuElement: MenuElement = {
+  id: "diplomacy",
+  name: "diplomacy",
+  displayed: (params: MenuElementParams) => params.selected !== null,
+  disabled: (params: MenuElementParams) => params.selected === null,
+  icon: allianceIcon,
+  color: "#0ea5e9",
+  tooltipItems: [
+    { text: "Diplomacy+", className: "title" },
+    { text: "Open diplomatic dossier, wars, war goals and casus belli.", className: "description" },
+  ],
+  action: (params: MenuElementParams) => {
+    if (!params.selected) return;
+    params.diplomacyPanel?.show(params.selected);
+    params.closeMenu();
+  },
+};
+
 export const infoMenuElement: MenuElement = {
   id: Slot.Info,
   name: "info",
   disabled: (params: MenuElementParams) =>
-    !params.selected || params.game.inSpawnPhase(),
+    params.game.inSpawnPhase() ||
+    (!params.selected && params.playerActions.historicalRegionID === undefined),
   icon: infoIcon,
   color: COLORS.info,
+  subMenu: (params: MenuElementParams) => {
+    const items: MenuElement[] = [];
+    if (params.selected) {
+      items.push({
+        id: "info_country",
+        name: "country",
+        disabled: () => false,
+        color: COLORS.info,
+        icon: infoIcon,
+        text: "🏛",
+        action: (p: MenuElementParams) => {
+          p.playerPanel.show(p.playerActions, p.tile);
+        },
+      });
+    }
+    if (params.playerActions.historicalRegionID !== undefined) {
+      items.push({
+        id: "info_region",
+        name: "region",
+        disabled: () => false,
+        color: "#059669",
+        icon: infoIcon,
+        text: "🗺",
+        action: (p: MenuElementParams) => {
+          const regionID = p.playerActions.historicalRegionID;
+          if (regionID === undefined) return;
+          p.closeMenu();
+          p.eventBus.emit(new ShowHistoricalRegionEvent(regionID));
+        },
+      });
+    }
+    return items;
+  },
   action: (params: MenuElementParams) => {
-    params.playerPanel.show(params.playerActions, params.tile);
+    if (params.selected) params.playerPanel.show(params.playerActions, params.tile);
   },
 };
 
@@ -765,6 +820,7 @@ export const centerButtonElement: CenterButtonElement = {
         params.playerActionHandler.handleAttack(
           params.myPlayer,
           params.selected?.id() ?? null,
+          params.tile,
         );
       }
     }
@@ -803,6 +859,7 @@ export const rootMenuElement: MenuElement = {
 
     const menuItems: (MenuElement | null)[] = [
       infoMenuElement,
+      !isOwnTerritory && params.selected ? diplomacyMenuElement : null,
       ...(isOwnTerritory
         ? [deleteUnitElement, allyRequestElement, buildMenuElement]
         : [
