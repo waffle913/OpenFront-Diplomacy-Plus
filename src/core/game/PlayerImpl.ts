@@ -31,6 +31,7 @@ import {
   Gold,
   GovernmentProfile,
   GovernmentStyle,
+  isDiplomacyPlusParticipant,
   MAX_UPGRADE_AMOUNT,
   MutableAlliance,
   NationalInterests,
@@ -427,13 +428,19 @@ export class PlayerImpl implements Player {
     // (set live in the sim via mg.stats()), surfaced here so it rides the live
     // PlayerUpdate every tick rather than only appearing in the game-end record.
     const deathStats = this.mg.stats().getPlayerStats(this);
-    const production = this.mg.resourceProduction(this);
-    const consumption = this.resourceConsumption();
+    const diplomacyPlusEnabled = isDiplomacyPlusParticipant(this);
+    const production = diplomacyPlusEnabled
+      ? this.mg.resourceProduction(this)
+      : undefined;
+    const consumption = diplomacyPlusEnabled
+      ? this.resourceConsumption()
+      : undefined;
     const relationEpoch = Math.floor(this.mg.ticks() / 10);
     let diplomaticRelations = this.cachedDiplomaticRelations?.value;
     if (
-      diplomaticRelations === undefined ||
-      this.cachedDiplomaticRelations?.epoch !== relationEpoch
+      diplomacyPlusEnabled &&
+      (diplomaticRelations === undefined ||
+        this.cachedDiplomaticRelations?.epoch !== relationEpoch)
     ) {
       const relationPlayers = new Set<Player>();
       for (const other of this.relations.keys()) relationPlayers.add(other);
@@ -456,7 +463,7 @@ export class PlayerImpl implements Player {
         }
       }
       diplomaticRelations = Array.from(relationPlayers)
-        .filter((other) => other.isAlive())
+        .filter((other) => other.isAlive() && isDiplomacyPlusParticipant(other))
         .map((other) => ({
           otherID: other.id(),
           opinion: this.relationScore(other),
@@ -475,7 +482,10 @@ export class PlayerImpl implements Player {
 
     const warGoalEpoch = Math.floor(this.mg.ticks() / 10);
     let warGoals = this.cachedWarGoals?.value;
-    if (warGoals === undefined || this.cachedWarGoals?.epoch !== warGoalEpoch) {
+    if (
+      diplomacyPlusEnabled &&
+      (warGoals === undefined || this.cachedWarGoals?.epoch !== warGoalEpoch)
+    ) {
       warGoals = Array.from(this.warGoals, ([targetID, type]) => {
         const target = this.mg.hasPlayer(targetID)
           ? this.mg.player(targetID)
@@ -485,11 +495,10 @@ export class PlayerImpl implements Player {
           this.warGoalInitialTargetTiles.get(targetID) ?? 0;
         let remainingTargetTiles = initialTargetTiles;
         if (target !== null && regionID !== undefined) {
-          remainingTargetTiles = 0;
-          for (const tile of target.tiles()) {
-            if (this.mg.historicalRegionAt(tile)?.id === regionID)
-              remainingTargetTiles++;
-          }
+          remainingTargetTiles = this.mg.historicalRegionOwnedTiles(
+            regionID,
+            target,
+          );
         }
         const warScore =
           initialTargetTiles > 0
@@ -538,21 +547,25 @@ export class PlayerImpl implements Player {
       piracyGold: this._piracyGold,
       goldEarned: this._goldEarned,
       troops: this.troops(),
-      food: this._food,
-      materials: this._materials,
-      fuel: this._fuel,
-      foodProduction: production.food,
-      materialsProduction: production.materials,
-      fuelProduction: production.fuel,
-      foodConsumption: consumption.food,
-      materialsConsumption: consumption.materials,
-      fuelConsumption: consumption.fuel,
-      resourceShortages: {
-        food: this._food <= 0 && consumption.food > production.food,
-        materials:
-          this._materials <= 0 && consumption.materials > production.materials,
-        fuel: this._fuel <= 0 && consumption.fuel > production.fuel,
-      },
+      food: diplomacyPlusEnabled ? this._food : undefined,
+      materials: diplomacyPlusEnabled ? this._materials : undefined,
+      fuel: diplomacyPlusEnabled ? this._fuel : undefined,
+      foodProduction: production?.food,
+      materialsProduction: production?.materials,
+      fuelProduction: production?.fuel,
+      foodConsumption: consumption?.food,
+      materialsConsumption: consumption?.materials,
+      fuelConsumption: consumption?.fuel,
+      resourceShortages:
+        production !== undefined && consumption !== undefined
+          ? {
+              food: this._food <= 0 && consumption.food > production.food,
+              materials:
+                this._materials <= 0 &&
+                consumption.materials > production.materials,
+              fuel: this._fuel <= 0 && consumption.fuel > production.fuel,
+            }
+          : undefined,
       allies: allies,
       embargoes: embargoes,
       isTraitor: this.isTraitor(),
@@ -571,47 +584,69 @@ export class PlayerImpl implements Player {
       betrayals: this._betrayalCount,
       threat: this.threat(),
       reputation: this.reputation(),
-      stability: this.stability(),
-      publicSatisfaction: this.publicSatisfaction(),
-      taxPolicy: this.taxPolicy(),
-      mobilizationTarget: this.mobilizationTarget(),
-      civilianManpowerPotential: this.mg
-        .config()
-        .civilianManpowerPotential(this),
-      militaryCapacity: this.mg.config().maxTroops(this),
-      governmentProfile: this.governmentProfile(),
-      nationalInterests: this.nationalInterests(),
-      diplomaticRelations,
-      diplomaticMemories: this.diplomaticMemory.map((memory) => ({
-        ...memory,
-      })),
-      tradeContracts: Array.from(this.tradeContracts_.values(), (contract) => ({
-        ...contract,
-      })).sort((a, b) => a.id.localeCompare(b.id)),
-      diplomaticCrises: Array.from(
-        this.diplomaticCrises_.values(),
-        (crisis) => ({ ...crisis }),
-      ).sort((a, b) => a.id.localeCompare(b.id)),
-      casusBelli: Array.from(this.casusBelli.values())
-        .filter((cb) => cb.expiresAt > this.mg.ticks())
-        .map((cb) => ({ ...cb })),
-      warGoals,
-      nonAggressionPacts: Array.from(
-        this.nonAggressionPacts,
-        ([otherID, expiresAt]) => ({
-          otherID,
-          expiresAt,
-        }),
-      ).filter((x) => x.expiresAt > this.mg.ticks()),
-      tradeAgreements: Array.from(
-        this.tradeAgreements,
-        ([otherID, expiresAt]) => ({ otherID, expiresAt }),
-      ).filter((x) => x.expiresAt > this.mg.ticks()),
-      truces: Array.from(this.postWarTruces, ([otherID, expiresAt]) => ({
-        otherID,
-        expiresAt,
-      })).filter((x) => x.expiresAt > this.mg.ticks()),
-      guarantees: Array.from(this.guarantees_),
+      stability: diplomacyPlusEnabled ? this.stability() : undefined,
+      publicSatisfaction: diplomacyPlusEnabled
+        ? this.publicSatisfaction()
+        : undefined,
+      taxPolicy: diplomacyPlusEnabled ? this.taxPolicy() : undefined,
+      mobilizationTarget: diplomacyPlusEnabled
+        ? this.mobilizationTarget()
+        : undefined,
+      civilianManpowerPotential: diplomacyPlusEnabled
+        ? this.mg.config().civilianManpowerPotential(this)
+        : undefined,
+      militaryCapacity: diplomacyPlusEnabled
+        ? this.mg.config().maxTroops(this)
+        : undefined,
+      governmentProfile: diplomacyPlusEnabled
+        ? this.governmentProfile()
+        : undefined,
+      nationalInterests: diplomacyPlusEnabled
+        ? this.nationalInterests()
+        : undefined,
+      diplomaticRelations: diplomacyPlusEnabled
+        ? diplomaticRelations
+        : undefined,
+      diplomaticMemories: diplomacyPlusEnabled
+        ? this.diplomaticMemory.map((memory) => ({ ...memory }))
+        : undefined,
+      tradeContracts: diplomacyPlusEnabled
+        ? Array.from(this.tradeContracts_.values(), (contract) => ({
+            ...contract,
+          })).sort((a, b) => a.id.localeCompare(b.id))
+        : undefined,
+      diplomaticCrises: diplomacyPlusEnabled
+        ? Array.from(this.diplomaticCrises_.values(), (crisis) => ({
+            ...crisis,
+          })).sort((a, b) => a.id.localeCompare(b.id))
+        : undefined,
+      casusBelli: diplomacyPlusEnabled
+        ? Array.from(this.casusBelli.values())
+            .filter((cb) => cb.expiresAt > this.mg.ticks())
+            .map((cb) => ({ ...cb }))
+        : undefined,
+      warGoals: diplomacyPlusEnabled ? warGoals : undefined,
+      nonAggressionPacts: diplomacyPlusEnabled
+        ? Array.from(this.nonAggressionPacts, ([otherID, expiresAt]) => ({
+            otherID,
+            expiresAt,
+          })).filter((x) => x.expiresAt > this.mg.ticks())
+        : undefined,
+      tradeAgreements: diplomacyPlusEnabled
+        ? Array.from(this.tradeAgreements, ([otherID, expiresAt]) => ({
+            otherID,
+            expiresAt,
+          })).filter((x) => x.expiresAt > this.mg.ticks())
+        : undefined,
+      truces: diplomacyPlusEnabled
+        ? Array.from(this.postWarTruces, ([otherID, expiresAt]) => ({
+            otherID,
+            expiresAt,
+          })).filter((x) => x.expiresAt > this.mg.ticks())
+        : undefined,
+      guarantees: diplomacyPlusEnabled
+        ? Array.from(this.guarantees_)
+        : undefined,
       lastDeleteUnitTick: this.lastDeleteUnitTick,
       isLobbyCreator: this.isLobbyCreator(),
     };
@@ -1154,6 +1189,8 @@ export class PlayerImpl implements Player {
   }
 
   changeTrust(other: Player, delta: number): void {
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return;
     if (other === this)
       throw new Error(`cannot update trust with self: ${this}`);
     this.diplomaticTrust.set(
@@ -1186,6 +1223,8 @@ export class PlayerImpl implements Player {
     opinionImpact: number,
     trustImpact: number,
   ): void {
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return;
     this.diplomaticMemory.push({
       otherID: other.id(),
       type,
@@ -1227,6 +1266,8 @@ export class PlayerImpl implements Player {
     if (other === this) {
       throw new Error(`cannot update relation with self: ${this}`);
     }
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return;
     const relation = this.relations.get(other) ?? 0;
     const newRelation = within(relation + delta, -100, 100);
     this.relations.set(other, newRelation);
@@ -1261,7 +1302,12 @@ export class PlayerImpl implements Player {
     type: CasusBelliType,
     durationTicks = 1800,
   ): void {
-    if (other === this) return;
+    if (
+      other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other)
+    )
+      return;
     const createdAt = this.mg.ticks();
     this.casusBelli.set(other.id(), {
       type,
@@ -1293,6 +1339,8 @@ export class PlayerImpl implements Player {
     durationTicks = 1800,
     warGoal: CasusBelliType | null = null,
   ): void {
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return;
     this.warAuthorizations.set(other.id(), this.mg.ticks() + durationTicks);
     if (warGoal !== null) this.warGoals.set(other.id(), warGoal);
   }
@@ -1316,13 +1364,12 @@ export class PlayerImpl implements Player {
   }
 
   setWarGoalRegionAgainst(other: Player, regionID: number): void {
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return;
     if (!this.isWarAuthorizedAgainst(other)) return;
     this.warGoalRegions.set(other.id(), regionID);
     if (!this.warGoalInitialTargetTiles.has(other.id())) {
-      let count = 0;
-      for (const tile of other.tiles()) {
-        if (this.mg.historicalRegionAt(tile)?.id === regionID) count++;
-      }
+      const count = this.mg.historicalRegionOwnedTiles(regionID, other);
       this.warGoalInitialTargetTiles.set(other.id(), Math.max(1, count));
     }
   }
@@ -1340,6 +1387,8 @@ export class PlayerImpl implements Player {
   }
 
   concludePeaceWith(other: Player, truceTicks = 1200): void {
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return;
     // End both sides' active political war state and install a temporary truce.
     this.endWarAgainst(other);
     other.endWarAgainst(this);
@@ -1377,7 +1426,12 @@ export class PlayerImpl implements Player {
   }
 
   setNonAggressionPact(other: Player, durationTicks = 3600): void {
-    if (other === this) return;
+    if (
+      other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other)
+    )
+      return;
     const expiresAt = this.mg.ticks() + durationTicks;
     this.nonAggressionPacts.set(other.id(), expiresAt);
     // Keep it bilateral even for internal AI-created treaties.
@@ -1411,7 +1465,13 @@ export class PlayerImpl implements Player {
   }
 
   setTradeAgreement(other: Player, durationTicks = 3600): void {
-    if (other === this || !this.canTrade(other)) return;
+    if (
+      other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other) ||
+      !this.canTrade(other)
+    )
+      return;
     const expiresAt = this.mg.ticks() + durationTicks;
     this.tradeAgreements.set(other.id(), expiresAt);
     (other as PlayerImpl).tradeAgreements.set(this.id(), expiresAt);
@@ -1426,7 +1486,12 @@ export class PlayerImpl implements Player {
   }
 
   setGuarantee(other: Player, enabled: boolean): void {
-    if (other === this) return;
+    if (
+      other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other)
+    )
+      return;
     const wasEnabled = this.guarantees_.has(other.id());
     if (enabled) this.guarantees_.add(other.id());
     else this.guarantees_.delete(other.id());
@@ -1696,6 +1761,8 @@ export class PlayerImpl implements Player {
   }
 
   canTrade(other: Player): boolean {
+    if (!isDiplomacyPlusParticipant(this) || !isDiplomacyPlusParticipant(other))
+      return false;
     const embargo =
       other.hasEmbargoAgainst(this) || this.hasEmbargoAgainst(other);
     return !embargo && other.id() !== this.id();
@@ -1879,6 +1946,7 @@ export class PlayerImpl implements Player {
   }
 
   addTradeContract(contract: TradeContract): boolean {
+    if (!isDiplomacyPlusParticipant(this)) return false;
     if (this.tradeContracts_.has(contract.id)) return false;
     this.tradeContracts_.set(contract.id, contract);
     return true;
@@ -1966,6 +2034,8 @@ export class PlayerImpl implements Player {
   provideEconomicAid(other: Player, amount: Gold): boolean {
     if (
       other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other) ||
       !other.isAlive() ||
       amount <= 0n ||
       this.gold() < amount ||
@@ -1987,6 +2057,8 @@ export class PlayerImpl implements Player {
     const cost = 400n;
     if (
       other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other) ||
       !other.isAlive() ||
       !this.canTrade(other) ||
       this.gold() < cost ||
@@ -2018,6 +2090,8 @@ export class PlayerImpl implements Player {
   startDiplomaticCrisis(other: Player): boolean {
     if (
       other === this ||
+      !isDiplomacyPlusParticipant(this) ||
+      !isDiplomacyPlusParticipant(other) ||
       !other.isAlive() ||
       this.truceWith(other) !== null ||
       this.diplomaticCrises().some(
@@ -2152,6 +2226,7 @@ export class PlayerImpl implements Player {
   }
 
   setTaxPolicy(policy: TaxPolicy): void {
+    if (!isDiplomacyPlusParticipant(this)) return;
     this._taxPolicy = policy;
   }
 
@@ -2168,11 +2243,13 @@ export class PlayerImpl implements Player {
   }
 
   setMobilizationTarget(percent: number): void {
+    if (!isDiplomacyPlusParticipant(this)) return;
     if (!Number.isFinite(percent)) return;
     this._mobilizationTarget = Math.round(within(percent, 0, 100));
   }
 
   updateDomesticPolitics(): void {
+    if (!isDiplomacyPlusParticipant(this)) return;
     const stocks = this.resources();
     const shortagePenalty =
       (stocks.food <= 0 ? 18 : 0) +
@@ -2286,7 +2363,12 @@ export class PlayerImpl implements Player {
       resourceAccess,
       preferredPartners: this.mg
         .players()
-        .filter((other) => other !== this && other.isAlive())
+        .filter(
+          (other) =>
+            other !== this &&
+            other.isAlive() &&
+            isDiplomacyPlusParticipant(other),
+        )
         .sort(
           (a, b) =>
             this.trust(b) - this.trust(a) ||

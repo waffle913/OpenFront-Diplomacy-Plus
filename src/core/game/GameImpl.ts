@@ -20,9 +20,9 @@ import {
   Game,
   GameMode,
   GameUpdates,
-  HumansVsNations,
   HistoricalRegion,
-  StrategicResources,
+  HumansVsNations,
+  isDiplomacyPlusParticipant,
   MessageType,
   MutableAlliance,
   Nation,
@@ -32,6 +32,7 @@ import {
   PlayerType,
   Quads,
   SpawnArea,
+  StrategicResources,
   Team,
   TeamGameSpawnAreas,
   TerrainType,
@@ -90,7 +91,11 @@ export class GameImpl implements Game {
   // incrementally on conquest so the economy never rescans the full map per tick.
   private regionalControlCounts = new Map<number, Map<number, number>>();
   private resourceProductionBySmallID = new Map<number, StrategicResources>();
-  private readonly zeroResourceProduction: StrategicResources = { food: 0, materials: 0, fuel: 0 };
+  private readonly zeroResourceProduction: StrategicResources = {
+    food: 0,
+    materials: 0,
+    fuel: 0,
+  };
   private regionalEconomyReady = false;
   private startTick: number | null = null;
 
@@ -247,7 +252,23 @@ export class GameImpl implements Game {
     return id === 0 ? null : (this._historicalRegions[id - 1] ?? null);
   }
 
-  historicalRegionControl(regionID: number): { player: Player; tiles: number; share: number }[] {
+  historicalRegionOwnedTiles(regionID: number, player: Player): number {
+    if (this.regionalEconomyReady) {
+      return (
+        this.regionalControlCounts.get(regionID)?.get(player.smallID()) ?? 0
+      );
+    }
+    // During world formation the ownership index is not complete yet.
+    let count = 0;
+    for (const tile of player.tiles()) {
+      if (this.historicalRegionAt(tile)?.id === regionID) count++;
+    }
+    return count;
+  }
+
+  historicalRegionControl(
+    regionID: number,
+  ): { player: Player; tiles: number; share: number }[] {
     const region = this._historicalRegions[regionID - 1];
     if (!region || region.tileCount === 0) return [];
 
@@ -258,7 +279,7 @@ export class GameImpl implements Game {
       for (const [smallID, tiles] of counts) {
         if (tiles <= 0) continue;
         const player = this.playerBySmallID(smallID);
-        if (!player.isPlayer()) continue;
+        if (!player.isPlayer() || !isDiplomacyPlusParticipant(player)) continue;
         result.push({ player, tiles, share: tiles / region.tileCount });
       }
       return result.sort((a, b) => b.tiles - a.tiles);
@@ -270,19 +291,29 @@ export class GameImpl implements Game {
     for (let tile = 0; tile < ids.length; tile++) {
       if (ids[tile] !== regionID) continue;
       const owner = this.owner(tile);
-      if (!owner.isPlayer()) continue;
+      if (!owner.isPlayer() || !isDiplomacyPlusParticipant(owner)) continue;
       counts.set(owner, (counts.get(owner) ?? 0) + 1);
     }
     return [...counts.entries()]
-      .map(([player, tiles]) => ({ player, tiles, share: tiles / region.tileCount }))
+      .map(([player, tiles]) => ({
+        player,
+        tiles,
+        share: tiles / region.tileCount,
+      }))
       .sort((a, b) => b.tiles - a.tiles);
   }
 
   resourceProduction(player: Player): StrategicResources {
-    return this.resourceProductionBySmallID.get(player.smallID()) ?? this.zeroResourceProduction;
+    return (
+      this.resourceProductionBySmallID.get(player.smallID()) ??
+      this.zeroResourceProduction
+    );
   }
 
-  private addResourceProduction(smallID: number, delta: StrategicResources): void {
+  private addResourceProduction(
+    smallID: number,
+    delta: StrategicResources,
+  ): void {
     if (smallID <= 0) return;
     let current = this.resourceProductionBySmallID.get(smallID);
     if (!current) {
@@ -295,7 +326,8 @@ export class GameImpl implements Game {
   }
 
   private initializeRegionalEconomy(): void {
-    if (this.regionalEconomyReady || this._historicalRegions.length === 0) return;
+    if (this.regionalEconomyReady || this._historicalRegions.length === 0)
+      return;
 
     type TerrainCounts = { plains: number; highland: number; mountain: number };
     const terrain = new Map<number, TerrainCounts>();
@@ -313,9 +345,15 @@ export class GameImpl implements Game {
         terrain.set(regionID, tc);
       }
       switch (this.terrainType(tile)) {
-        case TerrainType.Plains: tc.plains++; break;
-        case TerrainType.Highland: tc.highland++; break;
-        case TerrainType.Mountain: tc.mountain++; break;
+        case TerrainType.Plains:
+          tc.plains++;
+          break;
+        case TerrainType.Highland:
+          tc.highland++;
+          break;
+        case TerrainType.Mountain:
+          tc.mountain++;
+          break;
       }
 
       const owner = this.owner(tile);
@@ -337,7 +375,11 @@ export class GameImpl implements Game {
         region.resources = { food: 0, materials: 0, fuel: 0 };
         continue;
       }
-      const tc = terrain.get(region.id) ?? { plains: region.tileCount, highland: 0, mountain: 0 };
+      const tc = terrain.get(region.id) ?? {
+        plains: region.tileCount,
+        highland: 0,
+        mountain: 0,
+      };
       const total = Math.max(1, tc.plains + tc.highland + tc.mountain);
       const p = tc.plains / total;
       const h = tc.highland / total;
@@ -346,16 +388,29 @@ export class GameImpl implements Game {
 
       // Production is expressed per minute at 100% control. Terrain determines
       // food/materials; fuel is deliberately scarcer and geographically uneven.
-      const food = Math.max(1, Math.round(size * (p * 1.0 + h * 0.55 + m * 0.22) * 1.8));
-      const materials = Math.max(1, Math.round(size * (p * 0.22 + h * 0.72 + m * 1.10) * 1.55));
-      const fuelRoll = (simpleHash(`${region.founderID}:${region.id}:fuel`) >>> 0) % 100;
-      const fuelRichness = fuelRoll < 48 ? 0 : fuelRoll < 78 ? 0.35 : fuelRoll < 94 ? 0.75 : 1.35;
-      const fuel = fuelRichness === 0 ? 0 : Math.max(1, Math.round(size * fuelRichness * 0.72));
+      const food = Math.max(
+        1,
+        Math.round(size * (p * 1.0 + h * 0.55 + m * 0.22) * 1.8),
+      );
+      const materials = Math.max(
+        1,
+        Math.round(size * (p * 0.22 + h * 0.72 + m * 1.1) * 1.55),
+      );
+      const fuelRoll =
+        (simpleHash(`${region.founderID}:${region.id}:fuel`) >>> 0) % 100;
+      const fuelRichness =
+        fuelRoll < 48 ? 0 : fuelRoll < 78 ? 0.35 : fuelRoll < 94 ? 0.75 : 1.35;
+      const fuel =
+        fuelRichness === 0
+          ? 0
+          : Math.max(1, Math.round(size * fuelRichness * 0.72));
       region.resources = { food, materials, fuel };
 
       const byOwner = this.regionalControlCounts.get(region.id);
       if (!byOwner) continue;
       for (const [smallID, tiles] of byOwner) {
+        const owner = this.playerBySmallID(smallID);
+        if (!owner.isPlayer() || !isDiplomacyPlusParticipant(owner)) continue;
         const share = tiles / region.tileCount;
         this.addResourceProduction(smallID, {
           food: food * share,
@@ -366,7 +421,9 @@ export class GameImpl implements Game {
     }
 
     this.regionalEconomyReady = true;
-    console.log(`[Diplomacy+] V1.16 regional economy initialized for ${this._historicalRegions.length} regions`);
+    console.log(
+      `[Diplomacy+] V1.16 regional economy initialized for ${this._historicalRegions.length} regions`,
+    );
   }
 
   private updateRegionalEconomyOwnership(
@@ -390,38 +447,68 @@ export class GameImpl implements Game {
       if (n === 0) counts.delete(previousSmallID);
       else counts.set(previousSmallID, n);
     }
-    if (nextSmallID > 0) counts.set(nextSmallID, (counts.get(nextSmallID) ?? 0) + 1);
+    if (nextSmallID > 0)
+      counts.set(nextSmallID, (counts.get(nextSmallID) ?? 0) + 1);
 
     const perTile = {
       food: region.resources.food / region.tileCount,
       materials: region.resources.materials / region.tileCount,
       fuel: region.resources.fuel / region.tileCount,
     };
-    if (previousSmallID > 0) {
+    const previousOwner =
+      previousSmallID > 0 ? this.playerBySmallID(previousSmallID) : null;
+    const nextOwner =
+      nextSmallID > 0 ? this.playerBySmallID(nextSmallID) : null;
+    if (
+      previousOwner?.isPlayer() &&
+      isDiplomacyPlusParticipant(previousOwner)
+    ) {
       this.addResourceProduction(previousSmallID, {
-        food: -perTile.food, materials: -perTile.materials, fuel: -perTile.fuel,
+        food: -perTile.food,
+        materials: -perTile.materials,
+        fuel: -perTile.fuel,
       });
     }
-    if (nextSmallID > 0) this.addResourceProduction(nextSmallID, perTile);
+    if (nextOwner?.isPlayer() && isDiplomacyPlusParticipant(nextOwner)) {
+      this.addResourceProduction(nextSmallID, perTile);
+    }
   }
 
   private cleanRegionName(raw: string): string {
     let name = raw.trim().replace(/^the\s+/i, "");
     const prefixes = [
       /^(?:people's|peoples|people’s) republic of\s+/i,
-      /^federal republic of\s+/i, /^democratic republic of\s+/i,
-      /^grand duchy of\s+/i, /^confederation of\s+/i, /^confederacy of\s+/i,
-      /^parliament of\s+/i, /^republic of\s+/i, /^kingdom of\s+/i,
-      /^empire of\s+/i, /^sultanate of\s+/i, /^principality of\s+/i,
-      /^duchy of\s+/i, /^caliphate of\s+/i, /^commonwealth of\s+/i,
+      /^federal republic of\s+/i,
+      /^democratic republic of\s+/i,
+      /^grand duchy of\s+/i,
+      /^confederation of\s+/i,
+      /^confederacy of\s+/i,
+      /^parliament of\s+/i,
+      /^republic of\s+/i,
+      /^kingdom of\s+/i,
+      /^empire of\s+/i,
+      /^sultanate of\s+/i,
+      /^principality of\s+/i,
+      /^duchy of\s+/i,
+      /^caliphate of\s+/i,
+      /^commonwealth of\s+/i,
     ];
     const suffixes = [
       /\s+(?:people's|peoples|people’s) republic$/i,
-      /\s+federal republic$/i, /\s+democratic republic$/i,
-      /\s+grand duchy$/i, /\s+confederation$/i, /\s+confederacy$/i,
-      /\s+parliament$/i, /\s+republic$/i, /\s+kingdom$/i,
-      /\s+empire$/i, /\s+sultanate$/i, /\s+principality$/i,
-      /\s+duchy$/i, /\s+caliphate$/i, /\s+commonwealth$/i,
+      /\s+federal republic$/i,
+      /\s+democratic republic$/i,
+      /\s+grand duchy$/i,
+      /\s+confederation$/i,
+      /\s+confederacy$/i,
+      /\s+parliament$/i,
+      /\s+republic$/i,
+      /\s+kingdom$/i,
+      /\s+empire$/i,
+      /\s+sultanate$/i,
+      /\s+principality$/i,
+      /\s+duchy$/i,
+      /\s+caliphate$/i,
+      /\s+commonwealth$/i,
     ];
     let previous = "";
     while (previous !== name) {
@@ -454,7 +541,8 @@ export class GameImpl implements Game {
       if (!owner.isPlayer() || !owner.isAlive()) continue;
       // Both mature tribes and the small nation spawn territories become
       // immutable historical regions (nation regions are their capital cores).
-      if (owner.type() !== PlayerType.Bot && owner.type() !== PlayerType.Nation) continue;
+      if (owner.type() !== PlayerType.Bot && owner.type() !== PlayerType.Nation)
+        continue;
 
       let regionID = this.regionalFounderToID.get(owner.id());
       if (regionID === undefined) {
@@ -477,7 +565,9 @@ export class GameImpl implements Game {
     if (this.regionalCaptureCursor >= total) {
       this.regionalSnapshotDone = true;
       this.initializeRegionalEconomy();
-      console.log(`[Diplomacy+] Final T=20 regional snapshot complete: ${this._historicalRegions.length} regions`);
+      console.log(
+        `[Diplomacy+] Final T=20 regional snapshot complete: ${this._historicalRegions.length} regions`,
+      );
     }
   }
 
@@ -487,7 +577,9 @@ export class GameImpl implements Game {
     if (this.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK) return;
     this.regionalSnapshotDone = true;
     this.initializeRegionalEconomy();
-    console.log(`[Diplomacy+] Regional snapshot safety-freeze at ${this.regionalCaptureCursor}/${this._historicalRegionByTile.length}`);
+    console.log(
+      `[Diplomacy+] Regional snapshot safety-freeze at ${this.regionalCaptureCursor}/${this._historicalRegionByTile.length}`,
+    );
   }
 
   addUpdate(update: GameUpdate) {
@@ -775,7 +867,10 @@ export class GameImpl implements Game {
       if (execution.isActive()) this.execs.push(execution);
     }
     for (const player of this._players.values()) {
-      const update = player.toUpdate(this.playerStatsQuads, this.attackTroopsQuads);
+      const update = player.toUpdate(
+        this.playerStatsQuads,
+        this.attackTroopsQuads,
+      );
       if (update !== null) this.addUpdate(update);
     }
     return this.updates;

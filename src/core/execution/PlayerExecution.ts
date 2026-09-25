@@ -3,6 +3,7 @@ import {
   Cell,
   Execution,
   Game,
+  isDiplomacyPlusParticipant,
   Player,
   PlayerType,
   Structures,
@@ -45,13 +46,14 @@ export class PlayerExecution implements Execution {
   }
 
   tick(ticks: number) {
+    const diplomacyPlusEnabled = isDiplomacyPlusParticipant(this.player);
     // Preserve the same diplomatic drift while batching it once per simulated
     // second. Running every country's whole relation map every tick became
     // quadratic as diplomatic contacts accumulated.
-    if (ticks % 10 === this.player.smallID() % 10) {
+    if (diplomacyPlusEnabled && ticks % 10 === this.player.smallID() % 10) {
       this.player.decayRelations();
     }
-    this.player.processDiplomaticCrises();
+    if (diplomacyPlusEnabled) this.player.processDiplomaticCrises();
     for (const u of this.player.units()) {
       if (!Structures.has(u.type())) {
         continue;
@@ -103,6 +105,7 @@ export class PlayerExecution implements Execution {
     // per simulated second (10 ticks). Rates are stored as units/minute.
     if (
       !this.mg.inSpawnPhase() &&
+      diplomacyPlusEnabled &&
       this.mg.ticksSinceStart() >= WORLD_FORMATION_UNLOCK_TICK &&
       ticks % 10 === this.player.smallID() % 10
     ) {

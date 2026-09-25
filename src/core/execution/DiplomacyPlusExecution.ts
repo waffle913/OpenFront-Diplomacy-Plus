@@ -1,6 +1,7 @@
 import {
   Execution,
   Game,
+  isDiplomacyPlusParticipant,
   Player,
   PlayerID,
   PlayerType,
@@ -31,6 +32,10 @@ export class DiplomacyPlusExecution implements Execution {
 
   init(mg: Game, _ticks: number): void {
     this.mg = mg;
+    if (!isDiplomacyPlusParticipant(this.actor)) {
+      this.active = false;
+      return;
+    }
     // A request already waiting for the next simulation tick is not sent twice.
     if (
       mg
@@ -47,7 +52,10 @@ export class DiplomacyPlusExecution implements Execution {
     ) {
       this.active = false;
     }
-    if (!mg.hasPlayer(this.targetID)) {
+    if (
+      !mg.hasPlayer(this.targetID) ||
+      !isDiplomacyPlusParticipant(mg.player(this.targetID))
+    ) {
       this.active = false;
     }
   }

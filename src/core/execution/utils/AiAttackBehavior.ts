@@ -978,13 +978,7 @@ export class AiAttackBehavior {
       if (goal !== CasusBelliType.BorderClaim && goal !== CasusBelliType.Containment) continue;
       const regionID = this.player.warGoalRegionAgainst(candidate);
       if (regionID === null) continue;
-      let stillContested = false;
-      for (const tile of candidate.tiles()) {
-        if (this.game.historicalRegionAt(tile)?.id === regionID) {
-          stillContested = true;
-          break;
-        }
-      }
+      const stillContested = this.game.historicalRegionOwnedTiles(regionID, candidate) > 0;
       if (!stillContested) {
         this.player.clearWarGoalRegionAgainst(candidate);
         continue;

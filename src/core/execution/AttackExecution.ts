@@ -6,6 +6,7 @@ import {
   Difficulty,
   Execution,
   Game,
+  isDiplomacyPlusParticipant,
   MessageType,
   Player,
   PlayerID,
@@ -147,6 +148,8 @@ export class AttackExecution implements Execution {
     if (
       this.sourceTile === null &&
       this.target.isPlayer() &&
+      isDiplomacyPlusParticipant(this._owner) &&
+      isDiplomacyPlusParticipant(this.target) &&
       this.requestedRegionID !== null
     ) {
       if (this.countRegionTiles(this.target, this.requestedRegionID) === 0) {
@@ -175,6 +178,7 @@ export class AttackExecution implements Execution {
     // validation has passed, but before troops or diplomatic state change.
     if (
       !this.mg.inSpawnPhase() &&
+      isDiplomacyPlusParticipant(this._owner) &&
       this.mg.ticksSinceStart() >= WORLD_FORMATION_UNLOCK_TICK
     ) {
       const committed = Math.min(this._owner.troops(), this.startTroops);
@@ -266,8 +270,8 @@ export class AttackExecution implements Execution {
       // notorious. Keep the combat itself unchanged, but skip the CB/Threat/Rep
       // machinery that is reserved for wars between sovereign states.
       if (
-        targetPlayer.type() === PlayerType.Bot &&
-        this._owner.type() !== PlayerType.Bot
+        !isDiplomacyPlusParticipant(targetPlayer) ||
+        !isDiplomacyPlusParticipant(this._owner)
       ) {
         this.warGoal = null;
       } else {
@@ -350,7 +354,12 @@ export class AttackExecution implements Execution {
           // Guarantees turn aggression against a protected state into a direct
           // defensive CB for each guarantor.
           for (const observer of this.mg.players()) {
-            if (observer === this._owner || observer === targetPlayer) continue;
+            if (
+              observer === this._owner ||
+              observer === targetPlayer ||
+              !isDiplomacyPlusParticipant(observer)
+            )
+              continue;
             if (observer.guarantees(targetPlayer)) {
               observer.grantCasusBelli(
                 this._owner,
@@ -363,7 +372,11 @@ export class AttackExecution implements Execution {
           }
 
           for (const observer of this.mg.players()) {
-            if (observer === this._owner) continue;
+            if (
+              observer === this._owner ||
+              !isDiplomacyPlusParticipant(observer)
+            )
+              continue;
             const extremeAggressor =
               this._owner.threat() >= 80 || this._owner.reputation() <= 20;
             const regionalConcern =
@@ -384,7 +397,12 @@ export class AttackExecution implements Execution {
           }
 
           for (const observer of this.mg.players()) {
-            if (observer === this._owner || observer === targetPlayer) continue;
+            if (
+              observer === this._owner ||
+              observer === targetPlayer ||
+              !isDiplomacyPlusParticipant(observer)
+            )
+              continue;
             let reaction = -8;
             if (observer.relation(targetPlayer) >= 3) reaction -= 10;
             if (observer.relation(this._owner) >= 3) reaction += 5;
@@ -435,11 +453,7 @@ export class AttackExecution implements Execution {
   }
 
   private countRegionTiles(target: Player, regionID: number): number {
-    let count = 0;
-    for (const tile of target.tiles()) {
-      if (this.mg.historicalRegionAt(tile)?.id === regionID) count++;
-    }
-    return count;
+    return this.mg.historicalRegionOwnedTiles(regionID, target);
   }
 
   private hasReachableBorderInRegion(regionID: number): boolean {
@@ -556,7 +570,8 @@ export class AttackExecution implements Execution {
     // Recount once per tick: other offensives can capture or restore tiles.
     if (
       targetPlayer &&
-      targetPlayer.type() !== PlayerType.Bot &&
+      isDiplomacyPlusParticipant(this._owner) &&
+      isDiplomacyPlusParticipant(targetPlayer) &&
       this.claimedRegionID !== null
     ) {
       this.claimedRegionTargetTilesRemaining = this.countRegionTiles(
@@ -608,11 +623,13 @@ export class AttackExecution implements Execution {
         continue;
       }
 
-      // V1.13 HARD REGIONAL FRONTIER. This sits immediately before combat and
-      // Player.conquer(), so it constrains the actual tile-capture path rather
-      // than diplomacy/AI target selection. This applies to every player-owned
-      // target, including tribes, so the rule can be tested consistently.
-      if (targetPlayer) {
+      // Sovereign wars respect the historical-region frontier. Tribes retain
+      // vanilla expansion/conquest so they can form and disappear cheaply.
+      if (
+        targetPlayer &&
+        isDiplomacyPlusParticipant(this._owner) &&
+        isDiplomacyPlusParticipant(targetPlayer)
+      ) {
         const region = this.mg.historicalRegionAt(tileToConquer);
         if (region !== null) {
           if (this.operationalRegionID === null) {
@@ -634,7 +651,11 @@ export class AttackExecution implements Execution {
       // entire enemy. Border claims and containment both bind themselves to
       // the first historical region actually entered. From then on this
       // execution can only advance inside that immutable region.
-      if (targetPlayer && targetPlayer.type() !== PlayerType.Bot) {
+      if (
+        targetPlayer &&
+        isDiplomacyPlusParticipant(this._owner) &&
+        isDiplomacyPlusParticipant(targetPlayer)
+      ) {
         const region = this.mg.historicalRegionAt(tileToConquer);
         if (this.claimedRegionID === null) {
           if (region !== null) {
@@ -668,7 +689,8 @@ export class AttackExecution implements Execution {
 
       if (
         targetPlayer &&
-        targetPlayer.type() !== PlayerType.Bot &&
+        isDiplomacyPlusParticipant(this._owner) &&
+        isDiplomacyPlusParticipant(targetPlayer) &&
         this.claimedRegionID !== null
       ) {
         this.claimedRegionTargetTilesRemaining = Math.max(

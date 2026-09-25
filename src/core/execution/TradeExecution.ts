@@ -1,6 +1,7 @@
 import {
   Execution,
   Game,
+  isDiplomacyPlusParticipant,
   Player,
   PlayerID,
   PlayerType,
@@ -28,7 +29,13 @@ export class TradeExecution implements Execution {
 
   init(mg: Game): void {
     this.mg = mg;
-    if (!mg.hasPlayer(this.targetID)) this.active = false;
+    if (
+      !isDiplomacyPlusParticipant(this.actor) ||
+      !mg.hasPlayer(this.targetID) ||
+      !isDiplomacyPlusParticipant(mg.player(this.targetID))
+    ) {
+      this.active = false;
+    }
   }
 
   tick(): void {

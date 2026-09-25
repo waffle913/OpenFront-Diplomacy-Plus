@@ -480,6 +480,18 @@ export enum PlayerType {
   Nation = "NATION",
 }
 
+/**
+ * Diplomacy+ models sovereign countries. Vanilla bots are temporary tribes
+ * used to populate the map and deliberately stay outside these systems.
+ */
+export function isDiplomacyPlusParticipant(player: {
+  type(): PlayerType;
+}): boolean {
+  return (
+    player.type() === PlayerType.Human || player.type() === PlayerType.Nation
+  );
+}
+
 export interface Execution {
   isActive(): boolean;
   activeDuringSpawnPhase(): boolean;
@@ -977,6 +989,7 @@ export interface Game extends GameMap {
   historicalRegions(): readonly HistoricalRegion[];
   historicalRegionIds(): Uint32Array;
   historicalRegionAt(tile: TileRef): HistoricalRegion | null;
+  historicalRegionOwnedTiles(regionID: number, player: Player): number;
   historicalRegionControl(
     regionID: number,
   ): { player: Player; tiles: number; share: number }[];

@@ -1,5 +1,6 @@
 import {
   Game,
+  isDiplomacyPlusParticipant,
   Player,
   PlayerID,
   StrategicResource,
@@ -68,6 +69,9 @@ export function buildPoliticalSnapshot(
   game: Game,
   player: Player,
 ): PoliticalSnapshot {
+  if (!isDiplomacyPlusParticipant(player)) {
+    throw new Error("Diplomacy+ snapshots are unavailable for tribes");
+  }
   return {
     tick: game.ticks(),
     country: {
@@ -86,7 +90,7 @@ export function buildPoliticalSnapshot(
     },
     relations: game
       .players()
-      .filter((other) => other !== player)
+      .filter((other) => other !== player && isDiplomacyPlusParticipant(other))
       .map((other) => ({
         otherID: other.id(),
         opinion: player.relationScore(other),
@@ -105,6 +109,9 @@ export function submitPoliticalDecision(
   player: Player,
   decision: PoliticalDecision,
 ): PoliticalDecisionResult {
+  if (!isDiplomacyPlusParticipant(player)) {
+    return { accepted: false, reason: "unsupported_country_type" };
+  }
   if (!player.isAlive())
     return { accepted: false, reason: "country_not_alive" };
 
@@ -117,7 +124,11 @@ export function submitPoliticalDecision(
     return { accepted: false, reason: "target_missing" };
   }
   const target = game.player(decision.targetID);
-  if (target === player || !target.isAlive()) {
+  if (
+    target === player ||
+    !target.isAlive() ||
+    !isDiplomacyPlusParticipant(target)
+  ) {
     return { accepted: false, reason: "invalid_target" };
   }
 

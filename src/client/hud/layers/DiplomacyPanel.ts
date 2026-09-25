@@ -1,7 +1,7 @@
 import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { EventBus } from "../../../core/EventBus";
-import { UnitType } from "../../../core/game/Game";
+import { isDiplomacyPlusParticipant, UnitType } from "../../../core/game/Game";
 import {
   formatWorldDate,
   formatWorldDeadline,
@@ -177,6 +177,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
       .filter(
         (player) =>
           player.isAlive() &&
+          isDiplomacyPlusParticipant(player) &&
           player
             .displayName()
             .toLocaleLowerCase()

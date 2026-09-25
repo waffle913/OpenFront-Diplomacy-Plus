@@ -3,6 +3,7 @@ import {
   Execution,
   Game,
   GameMode,
+  isDiplomacyPlusParticipant,
   Nation,
   Player,
   PlayerID,
@@ -365,7 +366,9 @@ export class NationExecution implements Execution {
   private updateRelationsFromEmbargos() {
     const player = this.player;
     if (player === null) return;
-    const others = this.mg.players().filter((p) => p.id() !== player.id());
+    const others = this.mg
+      .players()
+      .filter((p) => p.id() !== player.id() && isDiplomacyPlusParticipant(p));
 
     others.forEach((other: Player) => {
       const embargoMalus = -20;
@@ -388,7 +391,9 @@ export class NationExecution implements Execution {
   private handleEmbargoesToHostileNations() {
     const player = this.player;
     if (player === null) return;
-    const others = this.mg.players().filter((p) => p.id() !== player.id());
+    const others = this.mg
+      .players()
+      .filter((p) => p.id() !== player.id() && isDiplomacyPlusParticipant(p));
     const difficulty = this.mg.config().gameConfig().difficulty;
     const isHigherDifficulty =
       difficulty === Difficulty.Hard || difficulty === Difficulty.Impossible;

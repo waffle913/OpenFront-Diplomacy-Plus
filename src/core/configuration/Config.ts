@@ -1022,6 +1022,20 @@ export class Config {
   }
 
   maxTroops(player: Player | PlayerView): number {
+    // Map-filling tribes keep OpenFront's vanilla troop model. They are not
+    // sovereign Diplomacy+ countries and therefore have no city/base
+    // mobilization system to maintain.
+    if (player.type() === PlayerType.Bot) {
+      const vanillaMaximum =
+        2 * (pow(player.numTilesOwned(), 0.6) * 1000 + 50000) +
+        player
+          .units(UnitType.City)
+          .filter((u) => !u.isUnderConstruction())
+          .map((city) => city.level())
+          .reduce((a, b) => a + b, 0) *
+          this.cityTroopIncrease();
+      return vanillaMaximum / 3;
+    }
     if (
       player.type() === PlayerType.Human &&
       this.hasInfiniteTroopsFor(player)
@@ -1031,10 +1045,6 @@ export class Config {
     const civilianPotential = this.civilianManpowerPotential(player);
     const maxTroops =
       civilianPotential * this.militaryInfrastructureRatio(player);
-
-    if (player.type() === PlayerType.Bot) {
-      return maxTroops / 3;
-    }
 
     if (player.type() === PlayerType.Human) {
       return maxTroops;
@@ -1064,7 +1074,7 @@ export class Config {
     // population growth comes overwhelmingly from cities.
     const territorialBaseline = Math.min(
       15_000,
-      Math.pow(Math.max(1, player.numTilesOwned()), 0.25) * 1_500,
+      pow(Math.max(1, player.numTilesOwned()), 0.25) * 1_500,
     );
     return 60_000 + territorialBaseline + cityLevels * this.cityTroopIncrease();
   }
@@ -1079,6 +1089,12 @@ export class Config {
 
   troopIncreaseRate(player: Player | PlayerView): number {
     const max = this.maxTroops(player);
+    if (player.type() === PlayerType.Bot) {
+      let toAdd = 10 + pow(player.troops(), 0.73) / 4;
+      toAdd *= 1 - player.troops() / max;
+      toAdd *= 0.5;
+      return Math.min(player.troops() + toAdd, max) - player.troops();
+    }
     const mobilizationTarget =
       "mobilizationTarget" in player ? player.mobilizationTarget() : 100;
     const target = max * (mobilizationTarget / 100);
@@ -1099,10 +1115,6 @@ export class Config {
       .filter((u) => !u.isUnderConstruction())
       .reduce((sum, base) => sum + base.level(), 0);
     toAdd *= Math.min(2.5, 0.65 + baseLevels * 0.2);
-
-    if (player.type() === PlayerType.Bot) {
-      toAdd *= 0.5;
-    }
 
     if (player.type() === PlayerType.Nation) {
       switch (this._gameConfig.difficulty) {

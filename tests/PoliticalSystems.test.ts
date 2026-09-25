@@ -6,6 +6,7 @@ import {
   submitPoliticalDecision,
 } from "../src/core/execution/PoliticalDecisionAdapter";
 import {
+  CasusBelliType,
   Game,
   Player,
   PlayerInfo,
@@ -203,5 +204,54 @@ describe("optional political decision adapter", () => {
         taxPolicy: "low",
       }),
     ).toEqual({ accepted: true, reason: "queued" });
+  });
+});
+
+describe("tribe exclusion", () => {
+  it("keeps vanilla tribes outside every Diplomacy+ entry point", async () => {
+    const tribeGame = await setup("plains", {}, [
+      new PlayerInfo("Country", PlayerType.Human, "country", "country"),
+      new PlayerInfo("Tribe", PlayerType.Bot, null, "tribe"),
+    ]);
+    const country = tribeGame.player("country");
+    const tribe = tribeGame.player("tribe");
+    country.conquer(tribeGame.ref(50, 50));
+    tribe.conquer(tribeGame.ref(50, 51));
+
+    country.setNonAggressionPact(tribe);
+    country.grantCasusBelli(tribe, CasusBelliType.Retaliation, 100);
+    country.setTradeAgreement(tribe);
+    country.setGuarantee(tribe, true);
+
+    expect(country.nonAggressionPactWith(tribe)).toBeNull();
+    expect(country.casusBelliAgainst(tribe)).toBeNull();
+    expect(country.tradeAgreementWith(tribe)).toBeNull();
+    expect(country.guarantees(tribe)).toBe(false);
+    expect(country.canTrade(tribe)).toBe(false);
+    expect(() => buildPoliticalSnapshot(tribeGame, tribe)).toThrow(
+      "unavailable for tribes",
+    );
+    expect(
+      submitPoliticalDecision(tribeGame, tribe, {
+        kind: "domestic_policy",
+        taxPolicy: "high",
+      }),
+    ).toEqual({ accepted: false, reason: "unsupported_country_type" });
+
+    const update = tribe.toUpdate();
+    expect(update?.foodProduction).toBeUndefined();
+    expect(update?.diplomaticRelations).toBeUndefined();
+    expect(update?.militaryCapacity).toBeUndefined();
+    expect(update?.governmentProfile).toBeUndefined();
+
+    tribe.addTroops(2_000);
+    tribe.addResources({ food: -10_000, materials: 0, fuel: -10_000 });
+    vi.spyOn(tribeGame, "ticksSinceStart").mockReturnValue(300);
+    const emptyStocks = tribe.resources();
+    const vanillaAttack = new AttackExecution(500, tribe, country.id());
+    vanillaAttack.init(tribeGame, tribeGame.ticks());
+    expect(vanillaAttack.isActive()).toBe(true);
+    expect(tribe.resources()).toEqual(emptyStocks);
+    expect(tribe.isWarAuthorizedAgainst(country)).toBe(false);
   });
 });
