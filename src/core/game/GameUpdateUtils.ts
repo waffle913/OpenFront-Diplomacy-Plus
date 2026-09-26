@@ -78,6 +78,10 @@ export function diffPlayerUpdate(
     prev.civilianManpowerPotential === next.civilianManpowerPotential &&
     prev.militaryCapacity === next.militaryCapacity &&
     governmentProfileEqual(prev.governmentProfile, next.governmentProfile) &&
+    politicalFactionArrayEqual(
+      prev.politicalFactions,
+      next.politicalFactions,
+    ) &&
     nationalInterestsEqual(prev.nationalInterests, next.nationalInterests) &&
     prev.nationalAgenda === next.nationalAgenda &&
     diplomaticRelationArrayEqual(
@@ -216,6 +220,13 @@ export function diffPlayerUpdate(
   setIfDifferent(
     "governmentProfile",
     governmentProfileEqual(prev.governmentProfile, next.governmentProfile),
+  );
+  setIfDifferent(
+    "politicalFactions",
+    politicalFactionArrayEqual(
+      prev.politicalFactions,
+      next.politicalFactions,
+    ),
   );
   setIfDifferent(
     "nationalInterests",
@@ -378,6 +389,10 @@ export function applyStateUpdate(target: PlayerState, pu: PlayerUpdate): void {
     target.militaryCapacity = pu.militaryCapacity;
   if (pu.governmentProfile !== undefined)
     target.governmentProfile = { ...pu.governmentProfile };
+  if (pu.politicalFactions !== undefined)
+    target.politicalFactions = pu.politicalFactions.map((faction) => ({
+      ...faction,
+    }));
   if (pu.nationalInterests !== undefined)
     target.nationalInterests = {
       ...pu.nationalInterests,
@@ -520,6 +535,25 @@ function governmentProfileEqual(
   );
 }
 
+function politicalFactionArrayEqual(
+  a?: NonNullable<PlayerUpdate["politicalFactions"]>,
+  b?: NonNullable<PlayerUpdate["politicalFactions"]>,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].type !== b[i].type ||
+      a[i].influence !== b[i].influence ||
+      a[i].trend !== b[i].trend ||
+      a[i].reason !== b[i].reason
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function nationalInterestsEqual(
   a?: NonNullable<PlayerUpdate["nationalInterests"]>,
   b?: NonNullable<PlayerUpdate["nationalInterests"]>,
@@ -632,6 +666,7 @@ function diplomaticCrisisArrayEqual(
       x.issuerID !== y.issuerID ||
       x.targetID !== y.targetID ||
       x.demand !== y.demand ||
+      x.incidentID !== y.incidentID ||
       x.createdAt !== y.createdAt ||
       x.responseAt !== y.responseAt ||
       x.deadlineAt !== y.deadlineAt ||
@@ -709,7 +744,8 @@ function diplomaticIncidentArrayEqual(
       x.status !== y.status ||
       x.demandedReparations !== y.demandedReparations ||
       x.settlementAmount !== y.settlementAmount ||
-      x.sourceUnitID !== y.sourceUnitID
+      x.sourceUnitID !== y.sourceUnitID ||
+      x.restitutionAvailable !== y.restitutionAvailable
     ) {
       return false;
     }

@@ -1,7 +1,7 @@
 # Diplomacy+ — Roadmap de développement et de test
 
-Mise à jour : 25 septembre 2026.
-Statut : plan de travail. Les étapes futures ne sont pas encore implémentées.
+Mise à jour : 26 septembre 2026.
+Statut : développement actif ; les lots marqués « vérifiés techniquement » attendent encore une validation en partie.
 
 ## Vision retenue
 
@@ -23,6 +23,9 @@ Garder dès la conception la possibilité de confier les décisions politiques �
 - Registre diplomatique central ajouté : propositions immuables, réponses différées, contre-propositions, expiration, invalidation et application atomique.
 - Premier incident persistant branché sur la saisie d'un navire commercial. La victime peut protester, abandonner l'affaire ou réclamer des réparations, y compris pendant la pause.
 - Première tranche d'IA diplomatique active : protestation et réparations après un incident, ainsi que propositions espacées de commerce, pacte ou paix fondées sur l'agenda national.
+- Négociation d'incident complétée : restitution, excuses, médiation, sanctions, ultimatum et casus belli graduels.
+- Cinq factions politiques légères influencent maintenant les évaluations diplomatiques et évoluent selon la guerre, le commerce, les pertes et l'isolement.
+- Première paix territoriale régionale : `CedeRegion` transfère une région historique et ses structures dans un règlement atomique, avec revalidation au moment de l'application.
 - Contrôles solo existants : pause et vitesses dont ×0,5.
 - Dernière vérification : 122 tests ciblés passent, TypeScript compile et le renderer de production est construit (empreinte cœur `f7f19cebb3c3`).
 - Candidate V2 installée dans le renderer Steam le 24 septembre 2026 ; `index.html` et `asset-hashes.json` correspondent exactement au build. La sauvegarde stable V1.16.1 reste disponible pour restauration.
@@ -49,6 +52,7 @@ Garder dès la conception la possibilité de confier les décisions politiques �
 Objectif : disposer d'une base fiable avant d'ajouter des systèmes.
 
 À vérifier :
+
 - Une trêve interdit les attaques dans les deux sens sans consommer de troupes.
 - Une invasion en mer ne permet pas de contourner une trêve signée après son départ.
 - Une attaque redevient possible à l'expiration.
@@ -66,6 +70,7 @@ Toute brèche constatée devient prioritaire. Les chemins d'attaque supplémenta
 Objectif jouable : remplacer le chronomètre principal par une date fictive et laisser le temps de prendre des décisions.
 
 Lots :
+
 1. Définir une conversion centrale entre ticks et calendrier, puis afficher la date.
 2. Afficher les échéances diplomatiques dans ce calendrier et expliquer la durée restante.
 3. Vérifier les vitesses existantes et la pause ; ajouter une vitesse plus lente seulement si nécessaire.
@@ -84,6 +89,7 @@ Critère de sortie : une horloge de simulation commune et des durées compréhen
 Objectif jouable : comprendre pourquoi un pays coopère, refuse ou devient hostile.
 
 Lots :
+
 1. Distinguer relations, confiance et menace perçue, avec facteurs visibles dans l'interface.
 2. Définir les intérêts nationaux : sécurité, territoires revendiqués, accès aux ressources, partenaires.
 3. Ajouter une mémoire structurée des événements importants : guerre, aide, engagements tenus ou rompus.
@@ -101,6 +107,7 @@ Critère de sortie : les décisions de l'IA s'appuient sur les mêmes données e
 Objectif jouable : donner un usage aux ressources et créer des besoins d'échange.
 
 Lots :
+
 1. Définir les stocks, la production, la consommation et les usages de nourriture, matériaux et carburant.
 2. Afficher un bilan prévisionnel : surplus, déficit et autonomie.
 3. Introduire progressivement les effets des pénuries, avec avertissements compréhensibles.
@@ -117,6 +124,7 @@ Critère de sortie : chaque pays a des besoins lisibles ; les premières minutes
 Objectif jouable : permettre au joueur et à chaque nation d'acheter et de vendre.
 
 Lots :
+
 1. Échanges bilatéraux simples : ressource, quantité, prix, acceptation ou refus explicable.
 2. Vérifier les fonds et stocks au moment de l'exécution ; réserver les engagements lorsque nécessaire.
 3. Ajouter des contrats récurrents, une durée, une annulation et un historique.
@@ -143,11 +151,11 @@ Critère de sortie : plusieurs pays peuvent poursuivre un intérêt commun sans 
 
 ### 6. Tensions et crises
 
-**Incidents commerciaux et négociation minimale implémentés, vérifiés techniquement.** Les ultimatums ouvrent une crise partagée avec réponse différée et échéance. La saisie d'un navire commercial crée désormais un incident persistant et confirmé, visible dans Diplomatie. Protestation, abandon, demande chiffrée, acceptation, refus et contre-proposition passent par le registre commun. L'IA victime proteste puis réclame réparation sans déclencher automatiquement une guerre. Une trêve interdit l'ouverture d'une crise et neutralise aussi les armes spéciales visant le signataire.
+**Chaîne du premier incident implémentée, vérifiée techniquement.** Les ultimatums ouvrent une crise partagée avec réponse différée et échéance. La saisie d'un navire commercial crée un incident persistant et confirmé, visible dans Diplomatie. Protestation, abandon, restitution, excuses, réparation, refus, contre-proposition, médiation, sanctions et ultimatum passent par les règles communes. Le refus final peut accorder un casus belli sans déclencher automatiquement une guerre. Une trêve interdit l'ouverture d'une crise et neutralise aussi les armes spéciales visant le signataire.
 
 Objectif jouable : permettre une escalade diplomatique avant la guerre, et une issue pacifique.
 
-Lots restants : destruction d'un navire et autres types d'incidents, restitution et excuses, médiation d'incident, sanctions graduelles, ultimatum relié à l'incident, puis casus belli en dernier recours.
+Lots restants : brancher la destruction d'un navire et d'autres violations sur le même registre, puis équilibrer les seuils et délais après essais en partie.
 
 À tester : motifs valides, délais respectés, conséquences commerciales réelles, refus et acceptation traités une seule fois. Une crise ne contourne pas une trêve.
 
@@ -155,11 +163,12 @@ Critère de sortie : une même crise peut se résoudre par accord, rester bloqu�
 
 ### 7. Logistique militaire et paix négociée
 
-**Première version implémentée, vérifiée techniquement.** Une offensive consomme un ravitaillement initial plafonné ; les armées, offensives et navires entretiennent une consommation continue. Les pénuries alimentaires touchent les troupes et le manque de carburant use les offensives. Les structures exigent des matériaux. Paix blanche et paix avec réparations produisent une trêve bilatérale. Les transferts territoriaux détaillés restent une extension d'équilibrage de la paix régionale existante.
+**Paix régionale V1 implémentée, vérifiée techniquement.** Une offensive consomme un ravitaillement initial plafonné ; les armées, offensives et navires entretiennent une consommation continue. Les pénuries alimentaires touchent les troupes et le manque de carburant use les offensives. Les structures exigent des matériaux. Paix blanche, réparations et cession d'une région historique peuvent être réunies dans une proposition atomique. Le transfert déplace les structures de la région, respecte les contrôles tiers et efface l'objectif de guerre régional correspondant. La V1 protège le noyau fondateur, l'élimination totale et le dernier territoire viable ; ces protections restent des règles de cette version, pas des invariants définitifs du moteur.
 
 Objectif jouable : rendre la guerre dépendante de l'économie et donner du contenu aux traités de paix.
 
 Lots :
+
 1. Consommation militaire et approvisionnement, en utilisant l'économie déjà testée.
 2. Usure et coût de guerre ; ralentissement progressif plutôt qu'effondrement incompréhensible.
 3. Négociation : paix blanche, reconnaissance du contrôle, cession ou restitution de territoires.
@@ -171,7 +180,7 @@ Critère de sortie : le joueur comprend ce qu'une guerre lui coûte, ce qu'il pe
 
 ### 8. Politique intérieure et dirigeants
 
-**Première version implémentée, vérifiée techniquement.** Fiscalité basse, normale ou haute, stabilité et satisfaction évoluent selon les pénuries, la guerre et les impôts. Les gouvernements ont un profil, un mandat et une succession ; les obligations et la mémoire restent celles du pays.
+**Première version avec factions implémentée, vérifiée techniquement.** Cinq niveaux de fiscalité, stabilité et satisfaction évoluent selon les pénuries, la guerre et les impôts. Les gouvernements ont un profil, un mandat et une succession ; les obligations et la mémoire restent celles du pays. Militaires, marchands, diplomates, isolationnistes et expansionnistes ont une influence normalisée, une tendance et une raison visibles. Leur poids intervient dans l'évaluation des pactes, du commerce, des excuses et de la paix territoriale.
 
 Objectif jouable : relier les choix extérieurs à la situation intérieure.
 
@@ -183,11 +192,12 @@ Critère de sortie : les changements de politique apportent de nouveaux choix sa
 
 ### 9. Pilotage politique par LLM — module optionnel
 
-**Passerelle moteur implémentée, sans fournisseur externe.** Un instantané synthétique expose économie, relations, intérêts, mémoire, contrats, crises et gouvernement. Les décisions utilisent une union structurée, sont revalidées et sont converties en exécutions ordinaires. Le branchement réseau, le budget d'appels et le journal d'un fournisseur LLM restent optionnels et désactivés.
+**Passerelle moteur étendue, sans fournisseur externe.** Un instantané synthétique expose économie, relations, intérêts, factions, agenda, mémoire, contrats, crises, incidents et propositions. Les décisions utilisent une union structurée, sont revalidées et sont converties en exécutions ordinaires. Une décision peut maintenant soumettre les mêmes termes diplomatiques que le joueur, y compris une paix régionale, sans modifier directement le monde. Le branchement réseau, le budget d'appels et le journal d'un fournisseur LLM restent optionnels et désactivés.
 
 Fondations prévues dès l'étape 2. Un prototype limité peut être réalisé plus tôt une fois les actions et les données suffisamment stables ; il ne doit pas bloquer les autres étapes.
 
 Lots :
+
 1. Fournir un état synthétique du pays, ses objectifs, sa mémoire et ses actions autorisées.
 2. Demander des décisions structurées lors de bilans politiques ou d'événements importants, pas à chaque tick.
 3. Vérifier chaque action dans le moteur de jeu avant application.
@@ -215,4 +225,4 @@ Demandé après validation du calendrier. Les ordres solo sont transmis pendant 
 
 ## Prochain lot concret
 
-Tester en partie la capture d'un navire commercial : apparition de l'incident, protestation pendant la pause, demande de réparations, réponse ou contre-proposition de l'IA et règlement après reprise. Ensuite, compléter l'escalade graduelle par la médiation et les sanctions. Le transfert régional `CedeRegion` reste le lot séparé prévu pour la paix négociée ; il ne doit pas être mélangé au prototype d'incident.
+Valider en partie deux scénarios complets : l'incident maritime jusqu'à sa résolution ou son ultimatum, puis une paix comprenant la cession d'une région historique. Corriger d'abord toute brèche de territoire, de trêve ou de double règlement. Le prochain système majeur sera la fondation d'une organisation internationale et son registre de résolutions ; il doit rester séparé du registre des propositions bilatérales.

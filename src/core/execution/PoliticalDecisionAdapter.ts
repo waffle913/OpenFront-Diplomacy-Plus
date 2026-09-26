@@ -1,4 +1,6 @@
+import { validateDiplomaticTerms } from "../game/DiplomaticProposalValidation";
 import {
+  DiplomaticTerm,
   Game,
   isDiplomacyPlusParticipant,
   Player,
@@ -10,6 +12,7 @@ import {
   DiplomacyPlusAction,
   DiplomacyPlusExecution,
 } from "./DiplomacyPlusExecution";
+import { DiplomaticProposalExecution } from "./DiplomaticProposalExecution";
 import { DomesticPolicyExecution } from "./DomesticPolicyExecution";
 import { EmbargoExecution } from "./EmbargoExecution";
 import { TradeDirection, TradeExecution } from "./TradeExecution";
@@ -29,6 +32,7 @@ export type PoliticalDecision =
       price: number;
       deliveries: number;
     }
+  | { kind: "proposal"; targetID: PlayerID; terms: DiplomaticTerm[] }
   | { kind: "embargo"; targetID: PlayerID; action: "start" | "stop" }
   | { kind: "domestic_policy"; taxPolicy: TaxPolicy };
 
@@ -47,6 +51,7 @@ export interface PoliticalSnapshot {
     reputation: number;
     government: ReturnType<Player["governmentProfile"]>;
     interests: ReturnType<Player["nationalInterests"]>;
+    factions: ReturnType<Player["politicalFactions"]>;
   };
   relations: {
     otherID: PlayerID;
@@ -58,6 +63,8 @@ export interface PoliticalSnapshot {
   memories: ReturnType<Player["diplomaticMemories"]>;
   contracts: ReturnType<Player["tradeContracts"]>;
   crises: ReturnType<Player["diplomaticCrises"]>;
+  proposals: ReturnType<Game["diplomaticProposalsFor"]>;
+  incidents: ReturnType<Game["diplomaticIncidentsFor"]>;
   agenda: ReturnType<Player["nationalAgenda"]>;
 }
 
@@ -89,6 +96,7 @@ export function buildPoliticalSnapshot(
       reputation: player.reputation(),
       government: player.governmentProfile(),
       interests: player.nationalInterests(),
+      factions: player.politicalFactions().map((faction) => ({ ...faction })),
     },
     relations: game
       .players()
@@ -103,6 +111,14 @@ export function buildPoliticalSnapshot(
     memories: player.diplomaticMemories().map((memory) => ({ ...memory })),
     contracts: player.tradeContracts().map((contract) => ({ ...contract })),
     crises: player.diplomaticCrises().map((crisis) => ({ ...crisis })),
+    proposals: game.diplomaticProposalsFor(player.id()).map((proposal) => ({
+      ...proposal,
+      terms: proposal.terms.map((term) => ({ ...term })),
+      reasons: proposal.reasons.map((reason) => ({ ...reason })),
+    })),
+    incidents: game
+      .diplomaticIncidentsFor(player.id())
+      .map((incident) => ({ ...incident })),
     agenda: player.nationalAgenda(),
   };
 }
@@ -141,6 +157,34 @@ export function submitPoliticalDecision(
     }
     game.addExecution(
       new DiplomacyPlusExecution(player, target.id(), decision.action),
+    );
+    return { accepted: true, reason: "queued" };
+  }
+
+  if (decision.kind === "proposal") {
+    if (decision.terms.length > 8) {
+      return { accepted: false, reason: "too_many_terms" };
+    }
+    const validation = validateDiplomaticTerms(
+      game,
+      player,
+      target,
+      decision.terms,
+    );
+    if (!validation.valid) {
+      return {
+        accepted: false,
+        reason: validation.reasons[0]?.code ?? "invalid_proposal",
+      };
+    }
+    game.addExecution(
+      new DiplomaticProposalExecution(
+        player,
+        "create",
+        target.id(),
+        undefined,
+        decision.terms,
+      ),
     );
     return { accepted: true, reason: "queued" };
   }

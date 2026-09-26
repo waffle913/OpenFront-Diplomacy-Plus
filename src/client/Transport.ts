@@ -181,7 +181,7 @@ export class SendDiplomaticProposalIntentEvent implements GameEvent {
 
 export class SendDiplomaticIncidentIntentEvent implements GameEvent {
   constructor(
-    public readonly action: "protest" | "dismiss",
+    public readonly action: "protest" | "dismiss" | "sanction" | "ultimatum",
     public readonly incidentID: string,
   ) {}
 }

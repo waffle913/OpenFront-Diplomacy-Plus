@@ -940,8 +940,20 @@ export class GameImpl implements Game {
     return this.diplomacyRegistry.dismissIncident(actor, id);
   }
 
+  sanctionDiplomaticIncident(actor: Player, id: string): boolean {
+    return this.diplomacyRegistry.sanctionIncident(actor, id);
+  }
+
+  issueDiplomaticIncidentUltimatum(actor: Player, id: string): boolean {
+    return this.diplomacyRegistry.issueUltimatum(actor, id);
+  }
+
   settleDiplomaticIncident(id: string, amount: number): void {
     this.diplomacyRegistry.settleIncident(id, amount);
+  }
+
+  escalateDiplomaticIncident(id: string): void {
+    this.diplomacyRegistry.escalateIncident(id);
   }
 
   inSpawnPhase(): boolean {

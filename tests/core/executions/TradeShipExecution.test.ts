@@ -256,7 +256,15 @@ describe("TradeShipExecution recapture", () => {
     // Losing the source port keeps the retaken ship sailing home instead of
     // being scrapped as a same-owner trade.
     partner.captureUnit(srcPort);
-    origin.captureUnit(tradeShip);
+    const restitution = game.createDiplomaticProposal(origin, pirate, [
+      { kind: "return_trade_ship", incidentID: incident.id },
+    ]).proposal!;
+    expect(game.acceptDiplomaticProposal(pirate, restitution.id).accepted).toBe(
+      true,
+    );
+    game.executeNextTick();
+    expect(restitution.status).toBe("settled");
+    expect(tradeShip.owner()).toBe(origin);
 
     const goldBefore = origin.gold();
     for (let i = 0; i < 100 && execution.isActive(); i++) {
@@ -267,7 +275,7 @@ describe("TradeShipExecution recapture", () => {
     expect(tradeShip.targetUnit()).toBe(homePort);
     expect(origin.gold()).toBeGreaterThan(goldBefore);
     expect(origin.piracyGold()).toBe(0n);
-    expect(incident.status).toBe("dismissed");
+    expect(incident.status).toBe("settled");
     expect(displayMessage.mock.calls.map(([message]) => message)).not.toContain(
       "events_display.received_gold_from_captured_ship",
     );

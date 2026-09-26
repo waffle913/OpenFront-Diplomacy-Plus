@@ -55,6 +55,37 @@ describe("military logistics", () => {
 });
 
 describe("domestic politics", () => {
+  it("maintains five normalized political factions", () => {
+    const factions = actor.politicalFactions();
+    expect(factions.map((faction) => faction.type)).toEqual([
+      "military",
+      "merchants",
+      "diplomats",
+      "isolationists",
+      "expansionists",
+    ]);
+    expect(
+      factions.reduce((total, faction) => total + faction.influence, 0),
+    ).toBeCloseTo(100, 5);
+  });
+
+  it("lets territorial losses strengthen expansionist pressure", () => {
+    const before =
+      actor
+        .politicalFactions()
+        .find((faction) => faction.type === "expansionists")?.influence ?? 0;
+    actor.rememberDiplomaticEvent(target, "territory_lost", -20, -20, {
+      severity: 90,
+    });
+    actor.refreshNationalAgenda(true);
+    actor.updateDomesticPolitics();
+    const expansionists = actor
+      .politicalFactions()
+      .find((faction) => faction.type === "expansionists");
+    expect(expansionists?.influence).toBeGreaterThan(before);
+    expect(expansionists?.trend).toBe(1);
+  });
+
   it("uses tax policy for income and lets shortages reduce satisfaction", () => {
     actor.setTaxPolicy("high");
     expect(actor.taxIncomeMultiplierPercent()).toBe(125);
@@ -264,7 +295,10 @@ describe("optional political decision adapter", () => {
     const snapshot = buildPoliticalSnapshot(game, actor);
     expect(snapshot.country.id).toBe(actor.id());
     expect(snapshot.country.resources).toEqual(actor.resources());
+    expect(snapshot.country.factions).toHaveLength(5);
     expect(snapshot.agenda.goals.length).toBeGreaterThanOrEqual(2);
+    expect(snapshot.proposals).toEqual([]);
+    expect(snapshot.incidents).toEqual([]);
     expect(snapshot.relations[0]).toEqual(
       expect.objectContaining({ otherID: target.id(), canTrade: true }),
     );
@@ -306,6 +340,27 @@ describe("optional political decision adapter", () => {
         taxPolicy: "low",
       }),
     ).toEqual({ accepted: true, reason: "queued" });
+  });
+
+  it("routes structured LLM proposals through the ordinary registry", () => {
+    expect(
+      submitPoliticalDecision(game, actor, {
+        kind: "proposal",
+        targetID: target.id(),
+        terms: [{ kind: "trade_agreement", durationTicks: 1800 }],
+      }),
+    ).toEqual({ accepted: true, reason: "queued" });
+    game.executeNextTick();
+    game.executeNextTick();
+    expect(game.diplomaticProposalsFor(actor.id())).toHaveLength(1);
+
+    expect(
+      submitPoliticalDecision(game, actor, {
+        kind: "proposal",
+        targetID: target.id(),
+        terms: [],
+      }),
+    ).toEqual({ accepted: false, reason: "empty_terms" });
   });
 });
 

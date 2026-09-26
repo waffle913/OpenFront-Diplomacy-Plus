@@ -24,6 +24,17 @@ function cloneTerm(term: DiplomaticTerm): DiplomaticTerm {
   return { ...term };
 }
 
+function termIncidentID(term: DiplomaticTerm): string | undefined {
+  if (
+    term.kind === "gold_reparations" ||
+    term.kind === "formal_apology" ||
+    term.kind === "return_trade_ship"
+  ) {
+    return term.incidentID;
+  }
+  return undefined;
+}
+
 function termSignature(terms: readonly DiplomaticTerm[]): string {
   return terms
     .map((term) => {
@@ -31,7 +42,13 @@ function termSignature(terms: readonly DiplomaticTerm[]): string {
         return `nap:${term.durationTicks}`;
       if (term.kind === "trade_agreement") return `trade:${term.durationTicks}`;
       if (term.kind === "end_war") return `peace:${term.truceTicks}`;
-      return `gold:${term.payerID}:${term.recipientID}:${term.amount}:${term.incidentID ?? ""}`;
+      if (term.kind === "gold_reparations")
+        return `gold:${term.payerID}:${term.recipientID}:${term.amount}:${term.incidentID ?? ""}`;
+      if (term.kind === "formal_apology")
+        return `apology:${term.offenderID}:${term.victimID}:${term.incidentID}`;
+      if (term.kind === "return_trade_ship")
+        return `restitution:${term.incidentID}`;
+      return `cede:${term.cedentID}:${term.recipientID}:${term.regionID}`;
     })
     .sort()
     .join("|");
@@ -100,6 +117,7 @@ export class DiplomacyRegistry {
       existing.damages += Math.max(0, Math.round(damages));
       existing.severity = Math.min(100, existing.severity + 8);
       existing.sourceUnitID = sourceUnitID;
+      existing.restitutionAvailable = sourceUnitID !== undefined;
       victim.rememberDiplomaticEvent(offender, type, -8, -8, {
         severity: existing.severity,
       });
@@ -117,6 +135,7 @@ export class DiplomacyRegistry {
       evidence: "confirmed",
       status: "unresolved",
       sourceUnitID,
+      restitutionAvailable: sourceUnitID !== undefined,
     };
     this.incidents.set(incident.id, incident);
     victim.rememberDiplomaticEvent(offender, type, -12, -15, {
@@ -133,6 +152,7 @@ export class DiplomacyRegistry {
     const incident = this.incidents.get(id);
     if (incident === undefined || incident.status === "settled") return;
     incident.damages += Math.max(0, Math.round(damages));
+    incident.restitutionAvailable = false;
     this.touch();
   }
 
@@ -160,6 +180,50 @@ export class DiplomacyRegistry {
       return false;
     }
     incident.status = "dismissed";
+    incident.restitutionAvailable = false;
+    this.touch();
+    return true;
+  }
+
+  sanctionIncident(actor: Player, id: string): boolean {
+    const incident = this.incidents.get(id);
+    if (
+      incident === undefined ||
+      incident.victimID !== actor.id() ||
+      !["protested", "escalated"].includes(incident.status) ||
+      !this.game.hasPlayer(incident.offenderID)
+    ) {
+      return false;
+    }
+    const offender = this.game.player(incident.offenderID);
+    if (!offender.isAlive()) return false;
+    actor.addEmbargo(offender, false);
+    actor.rememberDiplomaticEvent(offender, "sanctions_imposed", -8, -5, {
+      severity: incident.severity,
+    });
+    offender.rememberDiplomaticEvent(actor, "sanctions_imposed", -12, -10, {
+      severity: incident.severity,
+    });
+    incident.status = "sanctioned";
+    incident.severity = Math.min(100, incident.severity + 8);
+    this.touch();
+    return true;
+  }
+
+  issueUltimatum(actor: Player, id: string): boolean {
+    const incident = this.incidents.get(id);
+    if (
+      incident === undefined ||
+      incident.victimID !== actor.id() ||
+      !["escalated", "sanctioned"].includes(incident.status) ||
+      !this.game.hasPlayer(incident.offenderID)
+    ) {
+      return false;
+    }
+    const offender = this.game.player(incident.offenderID);
+    if (!actor.startDiplomaticCrisis(offender, incident.id)) return false;
+    incident.status = "ultimatum";
+    incident.severity = Math.min(100, incident.severity + 10);
     this.touch();
     return true;
   }
@@ -169,6 +233,15 @@ export class DiplomacyRegistry {
     if (incident === undefined) return;
     incident.status = "settled";
     incident.settlementAmount = Math.max(0, Math.round(amount));
+    incident.restitutionAvailable = false;
+    this.touch();
+  }
+
+  escalateIncident(id: string): void {
+    const incident = this.incidents.get(id);
+    if (incident === undefined || incident.status === "settled") return;
+    incident.status = "escalated";
+    incident.severity = Math.min(100, incident.severity + 10);
     this.touch();
   }
 
@@ -238,12 +311,14 @@ export class DiplomacyRegistry {
     };
     this.proposals.set(id, proposal);
     for (const term of proposal.terms) {
-      if (term.kind !== "gold_reparations" || term.incidentID === undefined)
-        continue;
-      const incident = this.incidents.get(term.incidentID);
+      const incidentID = termIncidentID(term);
+      if (incidentID === undefined) continue;
+      const incident = this.incidents.get(incidentID);
       if (incident !== undefined) {
         incident.status = "negotiating";
-        incident.demandedReparations = term.amount;
+        if (term.kind === "gold_reparations") {
+          incident.demandedReparations = term.amount;
+        }
       }
     }
     this.pruneProposalHistory();
@@ -367,7 +442,7 @@ export class DiplomacyRegistry {
       a.id.localeCompare(b.id),
     )) {
       hash += simpleHash(
-        `${incident.id}:${incident.type}:${incident.offenderID}:${incident.victimID}:${incident.createdAt}:${incident.severity}:${incident.damages}:${incident.evidence}:${incident.status}:${incident.demandedReparations ?? ""}:${incident.settlementAmount ?? ""}:${incident.sourceUnitID ?? ""}`,
+        `${incident.id}:${incident.type}:${incident.offenderID}:${incident.victimID}:${incident.createdAt}:${incident.severity}:${incident.damages}:${incident.evidence}:${incident.status}:${incident.demandedReparations ?? ""}:${incident.settlementAmount ?? ""}:${incident.sourceUnitID ?? ""}:${incident.restitutionAvailable ?? false}`,
       );
     }
     return hash;
@@ -411,6 +486,10 @@ export class DiplomacyRegistry {
             -10,
             -10,
           );
+          const incident = this.incidents.get(term.incidentID);
+          if (incident !== undefined) {
+            incident.severity = Math.min(100, incident.severity + 15);
+          }
         }
       }
     }
@@ -432,9 +511,9 @@ export class DiplomacyRegistry {
     status: "protested" | "escalated",
   ): void {
     for (const term of proposal.terms) {
-      if (term.kind !== "gold_reparations" || term.incidentID === undefined)
-        continue;
-      const incident = this.incidents.get(term.incidentID);
+      const incidentID = termIncidentID(term);
+      if (incidentID === undefined) continue;
+      const incident = this.incidents.get(incidentID);
       if (incident?.status === "negotiating") incident.status = status;
     }
   }
@@ -450,9 +529,8 @@ export class DiplomacyRegistry {
         continue;
       }
       for (const term of proposal.terms) {
-        if (term.kind === "gold_reparations" && term.incidentID !== undefined) {
-          activeIncidentIDs.add(term.incidentID);
-        }
+        const incidentID = termIncidentID(term);
+        if (incidentID !== undefined) activeIncidentIDs.add(incidentID);
       }
     }
     const candidates = [...this.incidents.values()]

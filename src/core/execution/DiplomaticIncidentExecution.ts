@@ -6,7 +6,7 @@ export class DiplomaticIncidentExecution implements Execution {
 
   constructor(
     private readonly actor: Player,
-    private readonly action: "protest" | "dismiss",
+    private readonly action: "protest" | "dismiss" | "sanction" | "ultimatum",
     private readonly incidentID: string,
   ) {}
 
@@ -27,8 +27,12 @@ export class DiplomaticIncidentExecution implements Execution {
     try {
       if (this.action === "protest") {
         this.game.protestDiplomaticIncident(this.actor, this.incidentID);
-      } else {
+      } else if (this.action === "dismiss") {
         this.game.dismissDiplomaticIncident(this.actor, this.incidentID);
+      } else if (this.action === "sanction") {
+        this.game.sanctionDiplomaticIncident(this.actor, this.incidentID);
+      } else {
+        this.game.issueDiplomaticIncidentUltimatum(this.actor, this.incidentID);
       }
     } finally {
       this.active = false;

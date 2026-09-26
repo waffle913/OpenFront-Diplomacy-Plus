@@ -20,14 +20,17 @@ import {
   PlayerInfo,
   PlayerProfile,
   PlayerType,
-  WORLD_FORMATION_END_TICK,
-  WORLD_FORMATION_UNLOCK_TICK,
   UnitType,
+  WORLD_FORMATION_UNLOCK_TICK,
 } from "./game/Game";
 import { createGame } from "./game/GameImpl";
 import { TileRef } from "./game/GameMap";
 import { GameMapLoader } from "./game/GameMapLoader";
-import { ErrorUpdate, GameUpdateType, GameUpdateViewData } from "./game/GameUpdates";
+import {
+  ErrorUpdate,
+  GameUpdateType,
+  GameUpdateViewData,
+} from "./game/GameUpdates";
 import { createNationsForGame } from "./game/NationCreation";
 import { loadTerrainMap as loadGameMap } from "./game/TerrainMapLoader";
 import { PseudoRandom } from "./PseudoRandom";
@@ -239,25 +242,28 @@ export class GameRunner {
         (this.game.ticks() % 10 === 0 &&
           territoryVersion !== this.lastHistoricalRegionTerritoryVersion));
     const historicalRegions = shouldSendHistoricalRegions
-      ? this.game.historicalRegions().filter((r) => r.tileCount >= 8).map((r) => {
-          const control = this.game.historicalRegionControl(r.id);
-          const dominant = control[0];
-          return {
-            id: r.id,
-            name: r.name,
-            founderID: r.founderID,
-            tileCount: r.tileCount,
-            representativeTile: r.representativeTile,
-            resources: { ...r.resources },
-            dominantOwnerID: dominant?.player.id(),
-            dominantShare: dominant?.share,
-            controllers: control.map((c) => ({
-              playerID: c.player.id(),
-              tiles: c.tiles,
-              share: c.share,
-            })),
-          };
-        })
+      ? this.game
+          .historicalRegions()
+          .filter((r) => r.tileCount >= 8)
+          .map((r) => {
+            const control = this.game.historicalRegionControl(r.id);
+            const dominant = control[0];
+            return {
+              id: r.id,
+              name: r.name,
+              founderID: r.founderID,
+              tileCount: r.tileCount,
+              representativeTile: r.representativeTile,
+              resources: { ...r.resources },
+              dominantOwnerID: dominant?.player.id(),
+              dominantShare: dominant?.share,
+              controllers: control.map((c) => ({
+                playerID: c.player.id(),
+                tiles: c.tiles,
+                share: c.share,
+              })),
+            };
+          })
       : undefined;
     if (shouldSendHistoricalRegions) {
       this.lastHistoricalRegionTerritoryVersion = territoryVersion;
@@ -267,21 +273,33 @@ export class GameRunner {
     if (regionsReady && !this.historicalRegionsSent) {
       const ids = this.game.historicalRegionIds();
       const boundary: number[] = [];
-      const w = this.game.width(), h = this.game.height();
-      for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
-        const tile=y*w+x, id=ids[tile];
-        if (id===0) continue;
-        if ((x>0&&ids[tile-1]!==id)||(x+1<w&&ids[tile+1]!==id)||
-            (y>0&&ids[tile-w]!==id)||(y+1<h&&ids[tile+w]!==id)) boundary.push(tile);
-      }
-      historicalRegionBoundaryTiles=new Uint32Array(boundary);
-      this.historicalRegionsSent=true;
-      console.log(`[Diplomacy+] compact regional boundary: ${boundary.length} tiles`);
+      const w = this.game.width(),
+        h = this.game.height();
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const tile = y * w + x,
+            id = ids[tile];
+          if (id === 0) continue;
+          if (
+            (x > 0 && ids[tile - 1] !== id) ||
+            (x + 1 < w && ids[tile + 1] !== id) ||
+            (y > 0 && ids[tile - w] !== id) ||
+            (y + 1 < h && ids[tile + w] !== id)
+          )
+            boundary.push(tile);
+        }
+      historicalRegionBoundaryTiles = new Uint32Array(boundary);
+      this.historicalRegionsSent = true;
+      console.log(
+        `[Diplomacy+] compact regional boundary: ${boundary.length} tiles`,
+      );
     }
     this.callBack({
       tick: this.game.ticks(),
       ...(historicalRegions ? { historicalRegions } : {}),
-      ...(historicalRegionBoundaryTiles ? { historicalRegionBoundaryTiles } : {}),
+      ...(historicalRegionBoundaryTiles
+        ? { historicalRegionBoundaryTiles }
+        : {}),
       packedTileUpdates,
       ...(packedMotionPlans ? { packedMotionPlans } : {}),
       ...(packedPlayerUpdates ? { packedPlayerUpdates } : {}),

@@ -2,6 +2,7 @@ import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { EventBus } from "../../../core/EventBus";
 import {
+  DiplomaticIncident,
   DiplomaticProposal,
   DiplomaticTerm,
   isDiplomacyPlusParticipant,
@@ -90,6 +91,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
   @state() private tradeAmount = 25;
   @state() private tradePrice = 250;
   @state() private tradeDeliveries = 3;
+  @state() private requestedRegionID: number | null = null;
 
   createRenderRoot() {
     return this;
@@ -956,6 +958,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
       reasonable_reparations: "Réparations raisonnables",
       excessive_reparations: "Réparations excessives",
       government_preference: "Orientation du gouvernement",
+      faction_influence: "Influence des factions",
       agenda_support: "Conforme à l’agenda national",
       agenda_opposition: "Contraire à l’agenda national",
       trade_need: "Besoin commercial",
@@ -965,6 +968,8 @@ export class DiplomacyPanel extends LitElement implements Controller {
       unresolved_incident: "Incident non résolu",
       confirmed_incident: "Responsabilité confirmée",
       economic_cost: "Coût économique",
+      accountability: "Responsabilité reconnue",
+      restitution_unavailable: "Restitution impossible",
       insufficient_gold: "Fonds insuffisants",
       trade_blocked: "Commerce bloqué",
       active_war: "Guerre en cours",
@@ -972,6 +977,12 @@ export class DiplomacyPanel extends LitElement implements Controller {
       already_active: "Accord déjà actif",
       proposal_expired: "Proposition expirée",
       reparations_exceed_damages: "Demande supérieure aux dommages",
+      region_missing: "Région inconnue",
+      region_not_controlled: "Région non contrôlée",
+      protected_national_core: "Noyau national protégé",
+      country_elimination_risk: "Élimination totale interdite",
+      last_viable_territory: "Dernier territoire viable protégé",
+      strategic_region: "Intérêt régional stratégique",
     };
     return labels[code] ?? code.replace(/_/g, " ");
   }
@@ -980,7 +991,15 @@ export class DiplomacyPanel extends LitElement implements Controller {
     if (term.kind === "non_aggression_pact") return "Pacte de non-agression";
     if (term.kind === "trade_agreement") return "Accord commercial";
     if (term.kind === "end_war") return "Fin de guerre";
-    return `${term.amount} or de réparations`;
+    if (term.kind === "gold_reparations")
+      return `${term.amount} or de réparations`;
+    if (term.kind === "formal_apology") return "Excuses officielles";
+    if (term.kind === "return_trade_ship")
+      return "Restitution du navire commercial";
+    const region = this.game
+      .historicalRegions()
+      .find((candidate) => candidate.id === term.regionID);
+    return `Cession de ${region?.name ?? `Région ${term.regionID}`}`;
   }
 
   private respondToProposal(
@@ -1168,6 +1187,10 @@ export class DiplomacyPanel extends LitElement implements Controller {
                 ${crisis.status === "pending"
                   ? html`<div class="mt-2 text-sm">
                       Échéance : <b>${this.deadline(crisis.deadlineAt)}</b>
+                      ${crisis.incidentID
+                        ? html` · Ultimatum lié à l’incident
+                          ${crisis.incidentID}`
+                        : nothing}
                     </div>`
                   : nothing}
               </div>`,
@@ -1187,7 +1210,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
                       : "Destruction d'un navire commercial"}</b
                   >
                   <span class="text-amber-300"
-                    >${incident.status.toUpperCase()}</span
+                    >${this.incidentStatusLabel(incident.status)}</span
                   >
                 </div>
                 <div class="text-xs text-slate-400">
@@ -1203,9 +1226,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
                   >
                 </div>
                 ${incident.victimID === my.id() &&
-                ["unresolved", "protested", "escalated"].includes(
-                  incident.status,
-                )
+                !["settled", "dismissed"].includes(incident.status)
                   ? html`<div class="mt-2 flex flex-wrap gap-2">
                       ${incident.status === "unresolved"
                         ? html`<button
@@ -1216,25 +1237,84 @@ export class DiplomacyPanel extends LitElement implements Controller {
                             Protester officiellement
                           </button>`
                         : nothing}
-                      <button
-                        class="rounded bg-red-900 px-2 py-1 text-xs"
-                        ?disabled=${incident.damages < 1}
-                        @click=${() =>
-                          this.sendProposal(
-                            this.game.player(incident.offenderID),
-                            [
-                              {
-                                kind: "gold_reparations",
-                                payerID: incident.offenderID,
-                                recipientID: incident.victimID,
-                                amount: Math.max(1, incident.damages),
-                                incidentID: incident.id,
-                              },
-                            ],
-                          )}
-                      >
-                        Demander réparation
-                      </button>
+                      ${["protested", "escalated"].includes(incident.status)
+                        ? html`<button
+                            class="rounded bg-red-900 px-2 py-1 text-xs"
+                            ?disabled=${incident.damages < 1}
+                            @click=${() =>
+                              this.sendProposal(
+                                this.game.player(incident.offenderID),
+                                [
+                                  {
+                                    kind: "gold_reparations",
+                                    payerID: incident.offenderID,
+                                    recipientID: incident.victimID,
+                                    amount: Math.max(1, incident.damages),
+                                    incidentID: incident.id,
+                                  },
+                                ],
+                              )}
+                          >
+                            Demander réparation
+                          </button>`
+                        : nothing}
+                      ${["protested", "escalated"].includes(incident.status)
+                        ? html`<button
+                            class="rounded bg-indigo-900 px-2 py-1 text-xs"
+                            @click=${() =>
+                              this.sendProposal(
+                                this.game.player(incident.offenderID),
+                                [
+                                  {
+                                    kind: "formal_apology",
+                                    offenderID: incident.offenderID,
+                                    victimID: incident.victimID,
+                                    incidentID: incident.id,
+                                  },
+                                ],
+                              )}
+                          >
+                            Exiger des excuses
+                          </button>`
+                        : nothing}
+                      ${incident.restitutionAvailable === true &&
+                      ["unresolved", "protested", "escalated"].includes(
+                        incident.status,
+                      )
+                        ? html`<button
+                            class="rounded bg-cyan-900 px-2 py-1 text-xs"
+                            @click=${() =>
+                              this.sendProposal(
+                                this.game.player(incident.offenderID),
+                                [
+                                  {
+                                    kind: "return_trade_ship",
+                                    incidentID: incident.id,
+                                  },
+                                ],
+                              )}
+                          >
+                            Demander la restitution
+                          </button>`
+                        : nothing}
+                      ${incident.status === "escalated"
+                        ? html`<button
+                            class="rounded bg-orange-900 px-2 py-1 text-xs"
+                            @click=${() =>
+                              this.sendIncidentAction("sanction", incident.id)}
+                          >
+                            Imposer un embargo
+                          </button>`
+                        : nothing}
+                      ${incident.status === "sanctioned"
+                        ? html`<button
+                            class="rounded bg-red-950 px-2 py-1 text-xs"
+                            @click=${() =>
+                              this.sendIncidentAction("ultimatum", incident.id)}
+                          >
+                            Lancer un ultimatum
+                          </button>`
+                        : nothing}
                       <button
                         class="rounded bg-slate-700 px-2 py-1 text-xs"
                         @click=${() =>
@@ -1252,7 +1332,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
   }
 
   private sendIncidentAction(
-    action: "protest" | "dismiss",
+    action: "protest" | "dismiss" | "sanction" | "ultimatum",
     incidentID: string,
   ) {
     this.eventBus.emit(
@@ -1260,9 +1340,29 @@ export class DiplomacyPanel extends LitElement implements Controller {
     );
   }
 
+  private incidentStatusLabel(status: DiplomaticIncident["status"]): string {
+    return {
+      unresolved: "NON RÉSOLU",
+      protested: "PROTESTATION OFFICIELLE",
+      negotiating: "EN NÉGOCIATION",
+      settled: "RÉGLÉ",
+      dismissed: "CLASSÉ",
+      escalated: "ESCALADE",
+      sanctioned: "SOUS SANCTIONS",
+      ultimatum: "ULTIMATUM EN COURS",
+    }[status];
+  }
+
   private renderGovernment(my: PlayerView) {
     const profile = my.governmentProfile();
     const interests = my.nationalInterests();
+    const factionLabels = {
+      military: "Militaires",
+      merchants: "Marchands",
+      diplomats: "Diplomates",
+      isolationists: "Isolationnistes",
+      expansionists: "Expansionnistes",
+    };
     return html`<div class="eu4-title">Cour et cabinet</div>
       <h2 class="mb-4 text-2xl font-black">${profile.leaderName}</h2>
       <div class="grid grid-cols-2 gap-3">
@@ -1311,6 +1411,33 @@ export class DiplomacyPanel extends LitElement implements Controller {
           </div>
         </div>
       </div>
+      <div class="eu4-card mt-3">
+        <div class="eu4-title mb-2">Groupes d’influence</div>
+        ${my.politicalFactions().map(
+          (faction) =>
+            html`<div class="mb-2">
+              <div class="eu4-row text-xs">
+                <span
+                  >${factionLabels[faction.type]}
+                  ${faction.trend > 0
+                    ? "▲"
+                    : faction.trend < 0
+                      ? "▼"
+                      : "•"}</span
+                ><b>${Math.round(faction.influence)}%</b>
+              </div>
+              <div class="h-1 overflow-hidden rounded bg-slate-800">
+                <div
+                  class="h-full bg-amber-600"
+                  style=${`width:${Math.max(0, Math.min(100, faction.influence))}%`}
+                ></div>
+              </div>
+              <div class="mt-1 text-[10px] text-slate-500">
+                ${faction.reason}
+              </div>
+            </div>`,
+        )}
+      </div>
       <div class="eu4-card mt-3 text-sm text-slate-400">
         Les successions changent le profil de décision. Les obligations restent
         attachées au pays.
@@ -1356,6 +1483,21 @@ export class DiplomacyPanel extends LitElement implements Controller {
         <div class="text-sm text-slate-400">
           Choisis un autre pays pour afficher les actions bilatérales.
         </div>`;
+    const controlledRegions = this.game
+      .historicalRegions()
+      .filter(
+        (region) =>
+          (region.controllers?.find(
+            (controller) => controller.playerID === selected.id(),
+          )?.tiles ?? 0) > 0 && region.founderID !== selected.id(),
+      );
+    const requestedRegion =
+      controlledRegions.find(
+        (region) => region.id === this.requestedRegionID,
+      ) ?? controlledRegions[0];
+    const atWar =
+      my.targets().some((target) => target.id() === selected.id()) ||
+      selected.targets().some((target) => target.id() === my.id());
     return html`<div class="eu4-title mb-1">Actions</div>
       <div class="mb-3 text-lg font-black">${selected.displayName()}</div>
       <div class="grid gap-2">
@@ -1459,6 +1601,46 @@ export class DiplomacyPanel extends LitElement implements Controller {
         >
           💰 Exiger des réparations
         </button>
+        <div class="eu4-card mt-1">
+          <div class="eu4-title mb-2">Paix territoriale</div>
+          <select
+            class="mb-2 w-full rounded bg-slate-800 p-2 text-xs"
+            .value=${requestedRegion ? String(requestedRegion.id) : ""}
+            @change=${(event: Event) => {
+              this.requestedRegionID = Number(
+                (event.target as HTMLSelectElement).value,
+              );
+            }}
+          >
+            ${controlledRegions.map(
+              (region) =>
+                html`<option value=${region.id}>${region.name}</option>`,
+            )}
+          </select>
+          <button
+            class="eu4-action w-full border-red-700/50 bg-red-950/60"
+            ?disabled=${requestedRegion === undefined}
+            @click=${() => {
+              if (!requestedRegion) return;
+              this.sendProposal(selected, [
+                {
+                  kind: "cede_region",
+                  cedentID: selected.id(),
+                  recipientID: my.id(),
+                  regionID: requestedRegion.id,
+                },
+                ...(atWar
+                  ? ([{ kind: "end_war", truceTicks: 1800 }] as const)
+                  : []),
+              ]);
+            }}
+          >
+            🗺 Exiger cette région${atWar ? " et conclure la paix" : ""}
+          </button>
+          <div class="mt-2 text-[10px] text-slate-500">
+            Les noyaux nationaux et le dernier territoire viable sont protégés.
+          </div>
+        </div>
       </div>
       <div
         class="mt-3 rounded border border-white/10 bg-black/20 p-2 text-[10px] text-slate-500"

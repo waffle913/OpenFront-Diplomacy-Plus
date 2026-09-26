@@ -1,5 +1,6 @@
 import { AllPlayersStats, ClientID, Winner } from "../Schemas";
 import {
+  DiplomaticCrisis,
   DiplomaticIncident,
   DiplomaticProposal,
   EmojiMessage,
@@ -11,6 +12,7 @@ import {
   NukeState,
   PlayerID,
   PlayerType,
+  PoliticalFaction,
   SamLauncherState,
   StrategicResources,
   Team,
@@ -320,6 +322,7 @@ export interface PlayerUpdate {
     tradeBias: number;
     riskTolerance: number;
   };
+  politicalFactions?: PoliticalFaction[];
   nationalInterests?: {
     security: number;
     expansion: number;
@@ -359,16 +362,7 @@ export interface PlayerUpdate {
     createdAt: Tick;
     lastFailure?: string;
   }[];
-  diplomaticCrises?: {
-    id: string;
-    issuerID: PlayerID;
-    targetID: PlayerID;
-    demand: "deescalate";
-    createdAt: Tick;
-    responseAt: Tick;
-    deadlineAt: Tick;
-    status: "pending" | "complied" | "refused" | "cancelled";
-  }[];
+  diplomaticCrises?: DiplomaticCrisis[];
   /** Proposals visible to this player, including recent terminal states. */
   diplomaticProposals?: DiplomaticProposal[];
   diplomaticIncidents?: DiplomaticIncident[];

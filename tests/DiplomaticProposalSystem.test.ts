@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DiplomaticProposalExecution } from "../src/core/execution/DiplomaticProposalExecution";
+import { chooseDiplomaticInitiative } from "../src/core/game/DiplomaticInitiative";
 import { evaluateDiplomaticProposal } from "../src/core/game/DiplomaticProposalEvaluation";
-import { Game, Player, PlayerInfo, PlayerType } from "../src/core/game/Game";
+import {
+  Game,
+  HistoricalRegion,
+  Player,
+  PlayerInfo,
+  PlayerType,
+  UnitType,
+} from "../src/core/game/Game";
 import { setup } from "./util/Setup";
 
 let game: Game;
@@ -181,5 +189,152 @@ describe("proposal decisions and pause semantics", () => {
     expect(proposer.nonAggressionPactWith(recipient)).toBeNull();
     game.executeNextTick();
     expect(proposal.status).toBe("settled");
+  });
+});
+
+describe("regional peace terms", () => {
+  function installRegion(
+    regionTiles: readonly number[],
+    founderID = proposer.id(),
+  ): HistoricalRegion {
+    const tileSet = new Set(regionTiles);
+    const region: HistoricalRegion = {
+      id: 77,
+      name: "Marches du Sud",
+      founderID,
+      tileCount: regionTiles.length,
+      representativeTile: regionTiles[0],
+      resources: { food: 8, materials: 5, fuel: 2 },
+    };
+    vi.spyOn(game, "historicalRegions").mockReturnValue([region]);
+    vi.spyOn(game, "historicalRegionAt").mockImplementation((tile) =>
+      tileSet.has(tile) ? region : null,
+    );
+    vi.spyOn(game, "historicalRegionOwnedTiles").mockImplementation(
+      (regionID, player) =>
+        regionID === region.id
+          ? regionTiles.filter((tile) => game.owner(tile) === player).length
+          : 0,
+    );
+    return region;
+  }
+
+  it("cedes only the negotiated historical region and its structures", () => {
+    const cededTiles = [
+      game.ref(30, 30),
+      game.ref(30, 31),
+      game.ref(31, 30),
+      game.ref(31, 31),
+    ];
+    const retainedTiles = Array.from({ length: 12 }, (_, index) =>
+      game.ref(40 + (index % 4), 30 + Math.floor(index / 4)),
+    );
+    for (const tile of [...cededTiles, ...retainedTiles])
+      recipient.conquer(tile);
+    installRegion(cededTiles);
+    recipient.addGold(1_000_000n);
+    const city = recipient.buildUnit(UnitType.City, cededTiles[0], {});
+    proposer.setWarGoalRegionAgainst(recipient, 77);
+
+    const proposal = game.createDiplomaticProposal(proposer, recipient, [
+      {
+        kind: "cede_region",
+        cedentID: recipient.id(),
+        recipientID: proposer.id(),
+        regionID: 77,
+      },
+    ]).proposal!;
+    expect(game.acceptDiplomaticProposal(recipient, proposal.id).accepted).toBe(
+      true,
+    );
+    game.executeNextTick();
+
+    expect(proposal.status).toBe("settled");
+    expect(cededTiles.every((tile) => game.owner(tile) === proposer)).toBe(
+      true,
+    );
+    expect(retainedTiles.every((tile) => game.owner(tile) === recipient)).toBe(
+      true,
+    );
+    expect(city.owner()).toBe(proposer);
+    expect(proposer.warGoalRegionAgainst(recipient)).toBeNull();
+  });
+
+  it("protects a country's founding core and last territory", () => {
+    const onlyTiles = [...recipient.tiles()];
+    installRegion(onlyTiles, recipient.id());
+    const protectedCore = game.createDiplomaticProposal(proposer, recipient, [
+      {
+        kind: "cede_region",
+        cedentID: recipient.id(),
+        recipientID: proposer.id(),
+        regionID: 77,
+      },
+    ]);
+    expect(protectedCore.accepted).toBe(false);
+    expect(protectedCore.reasons.map((reason) => reason.code)).toEqual(
+      expect.arrayContaining([
+        "protected_national_core",
+        "country_elimination_risk",
+      ]),
+    );
+  });
+
+  it("revalidates regional control before applying any package term", () => {
+    const cededTiles = [game.ref(30, 30), game.ref(30, 31)];
+    const retainedTiles = Array.from({ length: 12 }, (_, index) =>
+      game.ref(40 + (index % 4), 30 + Math.floor(index / 4)),
+    );
+    for (const tile of [...cededTiles, ...retainedTiles])
+      recipient.conquer(tile);
+    installRegion(cededTiles);
+    const proposal = game.createDiplomaticProposal(proposer, recipient, [
+      {
+        kind: "cede_region",
+        cedentID: recipient.id(),
+        recipientID: proposer.id(),
+        regionID: 77,
+      },
+      { kind: "non_aggression_pact", durationTicks: 1200 },
+    ]).proposal!;
+    game.acceptDiplomaticProposal(recipient, proposal.id);
+    for (const tile of cededTiles) proposer.conquer(tile);
+    game.executeNextTick();
+
+    expect(proposal.status).toBe("invalidated");
+    expect(
+      proposal.reasons.some(
+        (reason) => reason.code === "region_not_controlled",
+      ),
+    ).toBe(true);
+    expect(proposer.nonAggressionPactWith(recipient)).toBeNull();
+  });
+
+  it("lets an advantaged AI negotiate its declared regional war goal", () => {
+    const cededTiles = [game.ref(30, 30), game.ref(30, 31)];
+    const retainedTiles = Array.from({ length: 12 }, (_, index) =>
+      game.ref(40 + (index % 4), 30 + Math.floor(index / 4)),
+    );
+    for (const tile of [...cededTiles, ...retainedTiles])
+      recipient.conquer(tile);
+    installRegion(cededTiles);
+    proposer.addTroops(10_000);
+    recipient.addTroops(1_000);
+    proposer.authorizeWarAgainst(recipient);
+    proposer.setWarGoalRegionAgainst(recipient, 77);
+
+    expect(chooseDiplomaticInitiative(game, proposer)).toMatchObject({
+      targetID: recipient.id(),
+      terms: [
+        {
+          kind: "cede_region",
+          cedentID: recipient.id(),
+          recipientID: proposer.id(),
+          regionID: 77,
+        },
+        { kind: "end_war", truceTicks: 1800 },
+      ],
+      reasons: [{ code: "strategic_region" }],
+    });
   });
 });

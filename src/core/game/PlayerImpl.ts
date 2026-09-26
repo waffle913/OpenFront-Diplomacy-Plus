@@ -44,6 +44,8 @@ import {
   PlayerInfo,
   PlayerProfile,
   PlayerType,
+  PoliticalFaction,
+  PoliticalFactionType,
   Relation,
   StrategicResource,
   StrategicResources,
@@ -158,6 +160,8 @@ function diplomaticMemoryPolicy(type: DiplomaticMemoryType): {
     case "resolution_ignored":
       return { durationTicks: 12000, severity: 85, aggregates: true };
     case "reparations_paid":
+    case "apology_offered":
+    case "apology_accepted":
       return { durationTicks: 4800, severity: 45, aggregates: false };
   }
 }
@@ -296,6 +300,7 @@ export class PlayerImpl implements Player {
   private _governmentStyle: GovernmentStyle;
   private _governmentGeneration = 1;
   private _governmentTermEndsAt: Tick;
+  private politicalFactions_: PoliticalFaction[] | undefined;
 
   private lastDeleteUnitTick: Tick = -1;
   private lastEmbargoAllTick: Tick = -1;
@@ -701,6 +706,9 @@ export class PlayerImpl implements Player {
         : undefined,
       governmentProfile: diplomacyPlusEnabled
         ? this.governmentProfile()
+        : undefined,
+      politicalFactions: diplomacyPlusEnabled
+        ? this.politicalFactions().map((faction) => ({ ...faction }))
         : undefined,
       nationalInterests: diplomacyPlusEnabled
         ? this.nationalInterests()
@@ -2286,7 +2294,9 @@ export class PlayerImpl implements Player {
     return Array.from(this.diplomaticCrises_.values());
   }
 
-  startDiplomaticCrisis(other: Player): boolean {
+  startDiplomaticCrisis(other: Player, incidentID?: string): boolean {
+    const incident =
+      incidentID === undefined ? null : this.mg.diplomaticIncident(incidentID);
     if (
       other === this ||
       !isDiplomacyPlusParticipant(this) ||
@@ -2298,7 +2308,12 @@ export class PlayerImpl implements Player {
           crisis.status === "pending" &&
           crisis.issuerID === this.id() &&
           crisis.targetID === other.id(),
-      )
+      ) ||
+      (incidentID !== undefined &&
+        (incident === null ||
+          incident.victimID !== this.id() ||
+          incident.offenderID !== other.id() ||
+          !["escalated", "sanctioned"].includes(incident.status)))
     ) {
       return false;
     }
@@ -2307,7 +2322,8 @@ export class PlayerImpl implements Player {
       id: `${createdAt}:${this.smallID()}:${other.smallID()}`,
       issuerID: this.id(),
       targetID: other.id(),
-      demand: "deescalate",
+      demand: incidentID === undefined ? "deescalate" : "settle_incident",
+      incidentID,
       createdAt,
       responseAt: createdAt + 50,
       deadlineAt: createdAt + 300,
@@ -2352,6 +2368,10 @@ export class PlayerImpl implements Player {
         target.updateRelation(this, -5);
         this.rememberDiplomaticEvent(target, "crisis_complied", 3, 2);
         target.rememberDiplomaticEvent(this, "crisis_complied", -5, 0);
+        if (crisis.incidentID !== undefined) {
+          this.stopEmbargo(target);
+          this.mg.settleDiplomaticIncident(crisis.incidentID, 0);
+        }
       } else if (
         target.type() === PlayerType.Nation ||
         this.mg.ticks() >= crisis.deadlineAt
@@ -2362,6 +2382,9 @@ export class PlayerImpl implements Player {
         target.updateRelation(this, -20);
         this.rememberDiplomaticEvent(target, "crisis_refused", -15, -8);
         target.rememberDiplomaticEvent(this, "crisis_refused", -20, -8);
+        if (crisis.incidentID !== undefined) {
+          this.mg.escalateDiplomaticIncident(crisis.incidentID);
+        }
       }
     }
   }
@@ -2382,6 +2405,10 @@ export class PlayerImpl implements Player {
     issuer.changeTrust(this, 4);
     this.rememberDiplomaticEvent(issuer, "crisis_complied", -3, 1);
     issuer.rememberDiplomaticEvent(this, "crisis_complied", 6, 4);
+    if (crisis.incidentID !== undefined) {
+      issuer.stopEmbargo(this);
+      this.mg.settleDiplomaticIncident(crisis.incidentID, 300);
+    }
     return true;
   }
 
@@ -2411,6 +2438,10 @@ export class PlayerImpl implements Player {
     target.changeTrust(this, 2);
     issuer.rememberDiplomaticEvent(this, "mediation_accepted", 5, 4);
     target.rememberDiplomaticEvent(this, "mediation_accepted", 5, 4);
+    if (crisis.incidentID !== undefined) {
+      issuer.stopEmbargo(target);
+      this.mg.settleDiplomaticIncident(crisis.incidentID, 0);
+    }
     return true;
   }
 
@@ -2500,6 +2531,7 @@ export class PlayerImpl implements Player {
               : 60,
       );
     }
+    this.updatePoliticalFactions();
     if (this.mg.ticks() >= this._governmentTermEndsAt) {
       const styles: GovernmentStyle[] = [
         "hawkish",
@@ -2533,6 +2565,151 @@ export class PlayerImpl implements Player {
       termEndsAt: this._governmentTermEndsAt,
       ...modifiers[this._governmentStyle],
     };
+  }
+
+  politicalFactions(): readonly PoliticalFaction[] {
+    if (this.politicalFactions_ === undefined) {
+      const style = this.governmentProfile().style;
+      const bonus: Partial<Record<PoliticalFactionType, number>> =
+        style === "hawkish"
+          ? { military: 8, expansionists: 7 }
+          : style === "cooperative"
+            ? { diplomats: 8, merchants: 7 }
+            : style === "cautious"
+              ? { isolationists: 8, diplomats: 4 }
+              : { merchants: 5, diplomats: 3 };
+      const types: PoliticalFactionType[] = [
+        "military",
+        "merchants",
+        "diplomats",
+        "isolationists",
+        "expansionists",
+      ];
+      const weights = types.map((type) => 20 + (bonus[type] ?? 0));
+      const total = weights.reduce((sum, value) => sum + value, 0);
+      this.politicalFactions_ = types.map((type, index) => ({
+        type,
+        influence: (weights[index] / total) * 100,
+        trend: 0,
+        reason: "Équilibre initial du gouvernement",
+      }));
+    }
+    return this.politicalFactions_;
+  }
+
+  private updatePoliticalFactions(): void {
+    const current = this.politicalFactions().map((faction) => ({ ...faction }));
+    const atWar =
+      this.outgoingAttacks().some((attack) => attack.target().isPlayer()) ||
+      this.incomingAttacks().some((attack) => attack.attacker().isPlayer());
+    const agenda = this.nationalAgenda();
+    const memories = this.diplomaticMemories();
+    const tradeEvents = memories.filter(
+      (memory) =>
+        memory.type === "trade_completed" || memory.type === "trade_started",
+    ).length;
+    const incidentPressure = memories
+      .filter(
+        (memory) =>
+          memory.type === "trade_ship_seized" ||
+          memory.type === "trade_ship_destroyed" ||
+          memory.type === "territory_lost",
+      )
+      .reduce((sum, memory) => sum + memory.severity, 0);
+    const lostTerritory = memories.some(
+      (memory) => memory.type === "territory_lost",
+    );
+    const warExhaustion = agenda.concerns.some(
+      (concern) => concern.type === "high_war_exhaustion",
+    );
+    const isolation = agenda.concerns.some(
+      (concern) => concern.type === "diplomatic_isolation",
+    );
+    const expansionGoal = agenda.goals.some(
+      (goal) =>
+        goal.type === "recover_lost_territory" ||
+        goal.type === "control_strategic_region" ||
+        goal.type === "obtain_port",
+    );
+    const style = this.governmentProfile().style;
+    const targets: Record<PoliticalFactionType, number> = {
+      military:
+        15 +
+        (atWar ? 28 : 0) +
+        Math.min(25, incidentPressure / 5) +
+        (style === "hawkish" ? 18 : 0),
+      merchants:
+        15 +
+        this.tradeContracts().filter((contract) => contract.status === "active")
+          .length *
+          10 +
+        tradeEvents * 3 +
+        (style === "cooperative" || style === "pragmatic" ? 12 : 0),
+      diplomats:
+        15 +
+        (warExhaustion ? 25 : 0) +
+        (isolation ? 18 : 0) +
+        (this.diplomaticCrises().some((crisis) => crisis.status === "pending")
+          ? 12
+          : 0) +
+        (style === "cooperative" ? 18 : 0),
+      isolationists:
+        12 +
+        (atWar ? 12 : 0) +
+        Math.max(0, 55 - this.publicSatisfaction()) * 0.7 +
+        this.getEmbargoes().length * 4 +
+        (style === "cautious" ? 18 : 0),
+      expansionists:
+        12 +
+        (lostTerritory ? 25 : 0) +
+        (expansionGoal ? 22 : 0) +
+        (style === "hawkish" ? 16 : 0),
+    };
+    const reasons: Record<PoliticalFactionType, string> = {
+      military: atWar
+        ? "La guerre et les menaces renforcent les militaires"
+        : "Les incidents et la sécurité déterminent leur influence",
+      merchants:
+        tradeEvents > 0
+          ? "Le commerce récent renforce les marchands"
+          : "Les marchands recherchent de nouveaux débouchés",
+      diplomats: warExhaustion
+        ? "La fatigue de guerre renforce les diplomates"
+        : isolation
+          ? "L’isolement diplomatique exige de nouveaux partenaires"
+          : "Les diplomates défendent la coopération",
+      isolationists:
+        this.publicSatisfaction() < 55
+          ? "Le mécontentement favorise le repli"
+          : "Les isolationnistes demandent des engagements limités",
+      expansionists: lostTerritory
+        ? "La perte d’un territoire nourrit le revanchisme"
+        : expansionGoal
+          ? "Les intérêts régionaux renforcent les expansionnistes"
+          : "Les expansionnistes restent minoritaires sans objectif territorial",
+    };
+    const targetTotal = Object.values(targets).reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+    const next = current.map((faction) => {
+      const target = (targets[faction.type] / targetTotal) * 100;
+      const delta = Math.max(
+        -3,
+        Math.min(3, target - faction.influence),
+      );
+      return {
+        type: faction.type,
+        influence: Math.max(0, faction.influence + delta),
+        trend: Math.sign(delta) as -1 | 0 | 1,
+        reason: reasons[faction.type],
+      };
+    });
+    const nextTotal = next.reduce((sum, faction) => sum + faction.influence, 0);
+    this.politicalFactions_ = next.map((faction) => ({
+      ...faction,
+      influence: (faction.influence / nextTotal) * 100,
+    }));
   }
 
   nationalInterests(): NationalInterests {
@@ -3105,6 +3282,12 @@ export class PlayerImpl implements Player {
               this._taxPolicy,
               this._mobilizationTarget,
             ],
+            factions: this.politicalFactions().map((faction) => [
+              faction.type,
+              faction.influence,
+              faction.trend,
+              faction.reason,
+            ]),
             relations: [...this.relations]
               .map(([other, opinion]) => [other.id(), opinion])
               .sort(([a], [b]) => String(a).localeCompare(String(b))),

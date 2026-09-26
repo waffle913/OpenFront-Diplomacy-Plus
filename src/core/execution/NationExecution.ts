@@ -285,6 +285,34 @@ export class NationExecution implements Execution {
       .sort((a, b) => b.severity - a.severity || a.createdAt - b.createdAt)[0];
     if (unresolved !== undefined) {
       this.mg.protestDiplomaticIncident(this.player, unresolved.id);
+      return;
+    }
+    const escalated = this.mg
+      .diplomaticIncidentsFor(this.player.id())
+      .filter(
+        (incident) =>
+          incident.victimID === this.player!.id() &&
+          incident.status === "escalated" &&
+          incident.severity >= 60,
+      )
+      .sort((a, b) => b.severity - a.severity)[0];
+    if (escalated !== undefined) {
+      this.mg.sanctionDiplomaticIncident(this.player, escalated.id);
+      return;
+    }
+    const profile = this.player.governmentProfile();
+    if (profile.style !== "hawkish" && profile.style !== "pragmatic") return;
+    const sanctioned = this.mg
+      .diplomaticIncidentsFor(this.player.id())
+      .filter(
+        (incident) =>
+          incident.victimID === this.player!.id() &&
+          incident.status === "sanctioned" &&
+          incident.severity >= 70,
+      )
+      .sort((a, b) => b.severity - a.severity)[0];
+    if (sanctioned !== undefined) {
+      this.mg.issueDiplomaticIncidentUltimatum(this.player, sanctioned.id);
     }
   }
 
@@ -292,14 +320,48 @@ export class NationExecution implements Execution {
     if (this.player === null || !isDiplomacyPlusParticipant(this.player))
       return;
     const initiative = chooseDiplomaticInitiative(this.mg, this.player);
-    if (initiative === null || !this.mg.hasPlayer(initiative.targetID)) return;
-    this.mg.createDiplomaticProposal(
-      this.player,
-      this.mg.player(initiative.targetID),
-      initiative.terms,
-      undefined,
-      initiative.reasons,
-    );
+    if (initiative !== null && this.mg.hasPlayer(initiative.targetID)) {
+      this.mg.createDiplomaticProposal(
+        this.player,
+        this.mg.player(initiative.targetID),
+        initiative.terms,
+        undefined,
+        initiative.reasons,
+      );
+      return;
+    }
+    this.maybeMediateInternationalCrisis();
+  }
+
+  private maybeMediateInternationalCrisis(): void {
+    if (this.player === null) return;
+    const style = this.player.governmentProfile().style;
+    if (style !== "cooperative" && style !== "pragmatic") return;
+    const party = this.mg
+      .players()
+      .filter(
+        (candidate) =>
+          candidate !== this.player &&
+          isDiplomacyPlusParticipant(candidate) &&
+          candidate.diplomaticCrises().some((crisis) => {
+            if (
+              crisis.status !== "pending" ||
+              crisis.incidentID === undefined ||
+              crisis.issuerID === this.player!.id() ||
+              crisis.targetID === this.player!.id() ||
+              !this.mg.hasPlayer(crisis.issuerID) ||
+              !this.mg.hasPlayer(crisis.targetID)
+            ) {
+              return false;
+            }
+            return (
+              this.mg.player(crisis.issuerID).trust(this.player!) >= 55 &&
+              this.mg.player(crisis.targetID).trust(this.player!) >= 55
+            );
+          }),
+      )
+      .sort((a, b) => a.id().localeCompare(b.id()))[0];
+    if (party !== undefined) this.player.mediateCrisisInvolving(party);
   }
 
   private maybeProposeTrade(): void {

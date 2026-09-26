@@ -123,6 +123,8 @@ function stateFromUpdate(pu: PlayerUpdate): PlayerState {
       tradeBias: 0.05,
       riskTolerance: 0.55,
     },
+    politicalFactions:
+      pu.politicalFactions?.map((faction) => ({ ...faction })) ?? [],
     nationalInterests: pu.nationalInterests ?? {
       security: 30,
       expansion: 5,
@@ -818,6 +820,9 @@ export class PlayerView {
   }
   governmentProfile() {
     return this.state.governmentProfile!;
+  }
+  politicalFactions() {
+    return this.state.politicalFactions ?? [];
   }
   nationalInterests() {
     return this.state.nationalInterests!;

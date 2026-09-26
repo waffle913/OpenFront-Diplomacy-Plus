@@ -117,7 +117,12 @@ export class TribeSpawner {
     }
     return new SpawnExecution(
       this.gameID,
-      new PlayerInfo(this.regionStyleName(ct.name), PlayerType.Bot, null, this.random.nextID()),
+      new PlayerInfo(
+        this.regionStyleName(ct.name),
+        PlayerType.Bot,
+        null,
+        this.random.nextID(),
+      ),
       tile,
     );
   }
@@ -125,9 +130,20 @@ export class TribeSpawner {
   private regionStyleName(raw: string): string {
     let name = raw.trim().replace(/^the\s+/i, "");
     const words = [
-      "confederation", "confederacy", "brotherhood", "parliament", "republic",
-      "kingdom", "empire", "sultanate", "principality", "duchy", "caliphate",
-      "commonwealth", "federation", "union"
+      "confederation",
+      "confederacy",
+      "brotherhood",
+      "parliament",
+      "republic",
+      "kingdom",
+      "empire",
+      "sultanate",
+      "principality",
+      "duchy",
+      "caliphate",
+      "commonwealth",
+      "federation",
+      "union",
     ];
     for (const word of words) {
       name = name.replace(new RegExp(`^${word}\\s+of\\s+`, "i"), "");
@@ -137,7 +153,7 @@ export class TribeSpawner {
   }
 
   private randomTribeName(): string {
-    const { customTribes, prefixes, suffixes } = this.tribeNameData;
+    const { customTribes, prefixes } = this.tribeNameData;
 
     // Use custom tribes first (random selection, no duplicates until exhausted).
     if (customTribes !== undefined) {

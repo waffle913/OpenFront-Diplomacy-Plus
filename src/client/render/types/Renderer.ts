@@ -1,7 +1,9 @@
 import type {
+  DiplomaticCrisis,
   DiplomaticIncident,
   DiplomaticProposal,
   NationalAgenda,
+  PoliticalFaction,
 } from "../../../core/game/Game";
 import type { TileRef } from "../../../core/game/GameMap";
 
@@ -114,6 +116,7 @@ export interface PlayerState {
     tradeBias: number;
     riskTolerance: number;
   };
+  politicalFactions?: PoliticalFaction[];
   nationalInterests?: {
     security: number;
     expansion: number;
@@ -153,16 +156,7 @@ export interface PlayerState {
     createdAt: number;
     lastFailure?: string;
   }[];
-  diplomaticCrises?: {
-    id: string;
-    issuerID: string;
-    targetID: string;
-    demand: "deescalate";
-    createdAt: number;
-    responseAt: number;
-    deadlineAt: number;
-    status: "pending" | "complied" | "refused" | "cancelled";
-  }[];
+  diplomaticCrises?: DiplomaticCrisis[];
   diplomaticProposals?: DiplomaticProposal[];
   diplomaticIncidents?: DiplomaticIncident[];
   casusBelli?: {

@@ -1,4 +1,7 @@
-import { countriesAreAtWar } from "./DiplomaticProposalValidation";
+import {
+  countriesAreAtWar,
+  validateDiplomaticTerms,
+} from "./DiplomaticProposalValidation";
 import {
   DiplomaticReason,
   DiplomaticTerm,
@@ -62,6 +65,19 @@ export function chooseDiplomaticInitiative(
     )[0];
   if (incident !== undefined) {
     const offender = game.player(incident.offenderID);
+    if (incident.restitutionAvailable === true) {
+      return {
+        targetID: offender.id(),
+        terms: [{ kind: "return_trade_ship", incidentID: incident.id }],
+        reasons: [
+          {
+            code: "unresolved_incident",
+            impact: incident.severity,
+            detail: "Restitution d’un navire saisi",
+          },
+        ],
+      };
+    }
     const affordable = Math.min(
       incident.damages,
       Number(offender.gold() > 1_000_000n ? 1_000_000n : offender.gold()),
@@ -87,6 +103,24 @@ export function chooseDiplomaticInitiative(
         ],
       };
     }
+    return {
+      targetID: offender.id(),
+      terms: [
+        {
+          kind: "formal_apology",
+          offenderID: offender.id(),
+          victimID: actor.id(),
+          incidentID: incident.id,
+        },
+      ],
+      reasons: [
+        {
+          code: "unresolved_incident",
+          impact: incident.severity,
+          detail: "Demande d’excuses officielles",
+        },
+      ],
+    };
   }
 
   actor.refreshNationalAgenda();
@@ -94,20 +128,73 @@ export function chooseDiplomaticInitiative(
   const warExhaustion = agenda.concerns.find(
     (concern) => concern.type === "high_war_exhaustion",
   );
+  const enemies = game
+    .players()
+    .filter(
+      (other) =>
+        other !== actor &&
+        other.isAlive() &&
+        isDiplomacyPlusParticipant(other) &&
+        countriesAreAtWar(actor, other) &&
+        !hasRecentProposalBetween(game, actor, other.id()),
+    )
+    .sort((a, b) => b.troops() - a.troops() || a.id().localeCompare(b.id()));
+
+  for (const enemy of enemies) {
+    const offensiveRegion = actor.warGoalRegionAgainst(enemy);
+    const defensiveRegion = enemy.warGoalRegionAgainst(actor);
+    let terms: DiplomaticTerm[] | null = null;
+    let detail = "";
+    if (
+      offensiveRegion !== null &&
+      game.historicalRegionOwnedTiles(offensiveRegion, enemy) > 0 &&
+      actor.troops() >= enemy.troops() * 1.15
+    ) {
+      terms = [
+        {
+          kind: "cede_region",
+          cedentID: enemy.id(),
+          recipientID: actor.id(),
+          regionID: offensiveRegion,
+        },
+        { kind: "end_war", truceTicks: 1800 },
+      ];
+      detail = `Objectif de guerre régional ${offensiveRegion}`;
+    } else if (
+      defensiveRegion !== null &&
+      game.historicalRegionOwnedTiles(defensiveRegion, actor) > 0 &&
+      (warExhaustion !== undefined || enemy.troops() >= actor.troops() * 1.25)
+    ) {
+      terms = [
+        {
+          kind: "cede_region",
+          cedentID: actor.id(),
+          recipientID: enemy.id(),
+          regionID: defensiveRegion,
+        },
+        { kind: "end_war", truceTicks: 1800 },
+      ];
+      detail = `Concession de l’objectif régional ${defensiveRegion}`;
+    }
+    if (
+      terms !== null &&
+      validateDiplomaticTerms(game, actor, enemy, terms).valid
+    ) {
+      return {
+        targetID: enemy.id(),
+        terms,
+        reasons: [
+          {
+            code: "strategic_region",
+            impact: 70,
+            detail,
+          },
+        ],
+      };
+    }
+  }
   if (warExhaustion !== undefined) {
-    const enemy = game
-      .players()
-      .filter(
-        (other) =>
-          other !== actor &&
-          other.isAlive() &&
-          isDiplomacyPlusParticipant(other) &&
-          countriesAreAtWar(actor, other) &&
-          !hasRecentProposalBetween(game, actor, other.id()),
-      )
-      .sort(
-        (a, b) => b.troops() - a.troops() || a.id().localeCompare(b.id()),
-      )[0];
+    const enemy = enemies[0];
     if (enemy !== undefined) {
       return {
         targetID: enemy.id(),

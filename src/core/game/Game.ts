@@ -362,7 +362,9 @@ export type DiplomaticMemoryType =
   | "unjustified_war"
   | "international_condemnation"
   | "sanctions_imposed"
-  | "resolution_ignored";
+  | "resolution_ignored"
+  | "apology_offered"
+  | "apology_accepted";
 
 export interface DiplomaticMemory {
   otherID: PlayerID;
@@ -416,7 +418,8 @@ export interface DiplomaticCrisis {
   id: string;
   issuerID: PlayerID;
   targetID: PlayerID;
-  demand: "deescalate";
+  demand: "deescalate" | "settle_incident";
+  incidentID?: string;
   createdAt: Tick;
   responseAt: Tick;
   deadlineAt: Tick;
@@ -432,7 +435,9 @@ export type DiplomaticIncidentStatus =
   | "negotiating"
   | "settled"
   | "dismissed"
-  | "escalated";
+  | "escalated"
+  | "sanctioned"
+  | "ultimatum";
 export interface DiplomaticIncident {
   id: string;
   type: DiplomaticIncidentType;
@@ -446,6 +451,7 @@ export interface DiplomaticIncident {
   demandedReparations?: number;
   settlementAmount?: number;
   sourceUnitID?: number;
+  restitutionAvailable?: boolean;
 }
 
 export type DiplomaticProposalStatus =
@@ -486,6 +492,7 @@ export type DiplomaticReasonCode =
   | "reasonable_reparations"
   | "excessive_reparations"
   | "government_preference"
+  | "faction_influence"
   | "agenda_support"
   | "agenda_opposition"
   | "trade_need"
@@ -495,6 +502,14 @@ export type DiplomaticReasonCode =
   | "unresolved_incident"
   | "confirmed_incident"
   | "economic_cost"
+  | "accountability"
+  | "restitution_unavailable"
+  | "region_missing"
+  | "region_not_controlled"
+  | "protected_national_core"
+  | "country_elimination_risk"
+  | "last_viable_territory"
+  | "strategic_region"
   | "incident_missing"
   | "incident_resolved"
   | "not_incident_victim"
@@ -516,6 +531,19 @@ export type DiplomaticTerm =
       recipientID: PlayerID;
       amount: number;
       incidentID?: string;
+    }
+  | {
+      kind: "formal_apology";
+      offenderID: PlayerID;
+      victimID: PlayerID;
+      incidentID: string;
+    }
+  | { kind: "return_trade_ship"; incidentID: string }
+  | {
+      kind: "cede_region";
+      cedentID: PlayerID;
+      recipientID: PlayerID;
+      regionID: number;
     };
 
 export interface DiplomaticProposal {
@@ -574,6 +602,20 @@ export interface NationalInterests {
   expansion: number;
   resourceAccess: StrategicResource;
   preferredPartners: PlayerID[];
+}
+
+export type PoliticalFactionType =
+  | "military"
+  | "merchants"
+  | "diplomats"
+  | "isolationists"
+  | "expansionists";
+
+export interface PoliticalFaction {
+  type: PoliticalFactionType;
+  influence: number;
+  trend: -1 | 0 | 1;
+  reason: string;
 }
 
 export type NationalConcernType =
@@ -990,7 +1032,7 @@ export interface Player {
   provideEconomicAid(other: Player, amount: Gold): boolean;
   launchJointProject(other: Player): boolean;
   diplomaticCrises(): readonly DiplomaticCrisis[];
-  startDiplomaticCrisis(other: Player): boolean;
+  startDiplomaticCrisis(other: Player, incidentID?: string): boolean;
   processDiplomaticCrises(): void;
   offerCrisisConcession(issuer: Player): boolean;
   mediateCrisisInvolving(other: Player): boolean;
@@ -1003,6 +1045,7 @@ export interface Player {
   mobilizationTarget(): number;
   setMobilizationTarget(percent: number): void;
   governmentProfile(): GovernmentProfile;
+  politicalFactions(): readonly PoliticalFaction[];
   nationalInterests(): NationalInterests;
   nationalAgenda(): NationalAgenda;
   refreshNationalAgenda(force?: boolean): void;
@@ -1333,7 +1376,10 @@ export interface Game extends GameMap {
   updateDiplomaticIncidentDamages(id: string, damages: number): void;
   protestDiplomaticIncident(actor: Player, id: string): boolean;
   dismissDiplomaticIncident(actor: Player, id: string): boolean;
+  sanctionDiplomaticIncident(actor: Player, id: string): boolean;
+  issueDiplomaticIncidentUltimatum(actor: Player, id: string): boolean;
   settleDiplomaticIncident(id: string, amount: number): void;
+  escalateDiplomaticIncident(id: string): void;
 
   // Units
   unit(id: number): Unit | undefined;

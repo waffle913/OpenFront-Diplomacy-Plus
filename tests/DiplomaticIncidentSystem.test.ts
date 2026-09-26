@@ -130,6 +130,39 @@ describe("diplomatic incidents", () => {
     expect(victim.gold()).toBe(victimGold + 500n);
   });
 
+  it("settles a minor incident through an official apology", () => {
+    const incident = game.recordDiplomaticIncident(
+      "trade_ship_seized",
+      offender,
+      victim,
+      100,
+    )!;
+    game.protestDiplomaticIncident(victim, incident.id);
+    const trust = victim.trust(offender);
+    const proposal = game.createDiplomaticProposal(victim, offender, [
+      {
+        kind: "formal_apology",
+        offenderID: offender.id(),
+        victimID: victim.id(),
+        incidentID: incident.id,
+      },
+    ]).proposal!;
+    expect(evaluateDiplomaticProposal(game, offender, proposal).decision).toBe(
+      "accept",
+    );
+    game.acceptDiplomaticProposal(offender, proposal.id);
+    game.executeNextTick();
+
+    expect(proposal.status).toBe("settled");
+    expect(incident.status).toBe("settled");
+    expect(victim.trust(offender)).toBeGreaterThan(trust);
+    expect(
+      victim
+        .diplomaticMemories()
+        .some((memory) => memory.type === "apology_accepted"),
+    ).toBe(true);
+  });
+
   it("gives an AI victim one explainable reparations initiative", () => {
     const incident = game.recordDiplomaticIncident(
       "trade_ship_seized",
@@ -210,6 +243,93 @@ describe("diplomatic incidents", () => {
       victim
         .diplomaticMemories()
         .some((memory) => memory.type === "reparations_refused"),
+    ).toBe(true);
+  });
+
+  it("escalates a refused incident through sanctions and an ultimatum", () => {
+    const incident = game.recordDiplomaticIncident(
+      "trade_ship_seized",
+      offender,
+      victim,
+      300,
+    )!;
+    game.protestDiplomaticIncident(victim, incident.id);
+    const proposal = game.createDiplomaticProposal(victim, offender, [
+      {
+        kind: "gold_reparations",
+        payerID: offender.id(),
+        recipientID: victim.id(),
+        amount: 300,
+        incidentID: incident.id,
+      },
+    ]).proposal!;
+    game.rejectDiplomaticProposal(offender, proposal.id);
+
+    expect(incident.status).toBe("escalated");
+    expect(incident.severity).toBeGreaterThanOrEqual(60);
+    expect(game.sanctionDiplomaticIncident(victim, incident.id)).toBe(true);
+    expect(incident.status).toBe("sanctioned");
+    expect(victim.hasEmbargoAgainst(offender)).toBe(true);
+    expect(
+      victim
+        .diplomaticMemories()
+        .some((memory) => memory.type === "sanctions_imposed"),
+    ).toBe(true);
+
+    expect(game.issueDiplomaticIncidentUltimatum(victim, incident.id)).toBe(
+      true,
+    );
+    const crisis = victim.diplomaticCrises()[0];
+    expect(crisis).toMatchObject({
+      incidentID: incident.id,
+      demand: "settle_incident",
+      status: "pending",
+    });
+    expect(incident.status).toBe("ultimatum");
+
+    vi.spyOn(game, "ticks").mockReturnValue(crisis.responseAt);
+    victim.processDiplomaticCrises();
+    expect(crisis.status).toBe("refused");
+    expect(incident.status).toBe("escalated");
+    expect(victim.casusBelliAgainst(offender)).not.toBeNull();
+  });
+
+  it("lets a trusted third country mediate an incident ultimatum", async () => {
+    const mediationGame = await setup("plains", {}, [
+      new PlayerInfo("Victim", PlayerType.Human, "victim", "victim"),
+      new PlayerInfo("Offender", PlayerType.Nation, null, "offender"),
+      new PlayerInfo("Mediator", PlayerType.Nation, null, "mediator"),
+    ]);
+    const mediationVictim = mediationGame.player("victim");
+    const mediationOffender = mediationGame.player("offender");
+    const mediator = mediationGame.player("mediator");
+    mediationVictim.conquer(mediationGame.ref(50, 50));
+    mediationOffender.conquer(mediationGame.ref(50, 51));
+    mediator.conquer(mediationGame.ref(51, 50));
+    mediationVictim.changeTrust(mediator, 10);
+    mediationOffender.changeTrust(mediator, 10);
+
+    const incident = mediationGame.recordDiplomaticIncident(
+      "trade_ship_seized",
+      mediationOffender,
+      mediationVictim,
+      200,
+    )!;
+    mediationGame.protestDiplomaticIncident(mediationVictim, incident.id);
+    mediationGame.escalateDiplomaticIncident(incident.id);
+    mediationGame.sanctionDiplomaticIncident(mediationVictim, incident.id);
+    mediationGame.issueDiplomaticIncidentUltimatum(
+      mediationVictim,
+      incident.id,
+    );
+
+    expect(mediator.mediateCrisisInvolving(mediationVictim)).toBe(true);
+    expect(incident.status).toBe("settled");
+    expect(mediationVictim.hasEmbargoAgainst(mediationOffender)).toBe(false);
+    expect(
+      mediationVictim
+        .diplomaticMemories()
+        .some((memory) => memory.type === "mediation_accepted"),
     ).toBe(true);
   });
 });

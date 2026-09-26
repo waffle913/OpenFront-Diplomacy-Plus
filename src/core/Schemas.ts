@@ -721,11 +721,32 @@ export const DiplomaticTermSchema = z.union([
     amount: zb.uint({ min: 1, max: 1000000 }),
     incidentID: z.string().max(128).optional(),
   }),
+  z.object({
+    kind: z.literal("formal_apology"),
+    offenderID: MappedID,
+    victimID: MappedID,
+    incidentID: z.string().max(128),
+  }),
+  z.object({
+    kind: z.literal("return_trade_ship"),
+    incidentID: z.string().max(128),
+  }),
+  z.object({
+    kind: z.literal("cede_region"),
+    cedentID: MappedID,
+    recipientID: MappedID,
+    regionID: zb.uint({ min: 1 }),
+  }),
 ]);
 
 export const DiplomaticIncidentIntentSchema = z.object({
   type: z.literal("diplomatic_incident"),
-  action: z.union([z.literal("protest"), z.literal("dismiss")]),
+  action: z.union([
+    z.literal("protest"),
+    z.literal("dismiss"),
+    z.literal("sanction"),
+    z.literal("ultimatum"),
+  ]),
   incidentID: z.string().max(128),
 });
 

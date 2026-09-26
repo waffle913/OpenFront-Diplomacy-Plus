@@ -21,6 +21,9 @@ export function evaluateDiplomaticProposal(
     score += reason.impact;
     reasons.push(reason);
   };
+  const faction = (type: string) =>
+    evaluator.politicalFactions().find((item) => item.type === type)
+      ?.influence ?? 20;
 
   const trust = evaluator.trust(proposer);
   const opinion = evaluator.relationScore(proposer);
@@ -49,10 +52,22 @@ export function evaluateDiplomaticProposal(
   for (const term of proposal.terms) {
     if (term.kind === "non_aggression_pact") {
       add({ code: "favorable_relations", impact: 12 });
+      add({
+        code: "faction_influence",
+        impact: Math.round(
+          (faction("diplomats") + faction("isolationists") - 40) * 0.35,
+        ),
+        detail: "diplomates et isolationnistes",
+      });
     } else if (term.kind === "trade_agreement") {
       add({
         code: "government_preference",
         impact: Math.round(12 + evaluator.governmentProfile().tradeBias * 60),
+      });
+      add({
+        code: "faction_influence",
+        impact: Math.round((faction("merchants") - 20) * 0.7),
+        detail: "marchands",
       });
     } else if (term.kind === "end_war") {
       const exhausted =
@@ -67,6 +82,13 @@ export function evaluateDiplomaticProposal(
       else if (ratio < 0.8) add({ code: "military_leverage", impact: -20 });
       if (countriesAreAtWar(evaluator, proposer))
         add({ code: "war_required", impact: 10 });
+      add({
+        code: "faction_influence",
+        impact: Math.round(
+          (faction("diplomats") + faction("isolationists") - 40) * 0.55,
+        ),
+        detail: "diplomates et isolationnistes",
+      });
     } else if (term.kind === "gold_reparations") {
       if (term.recipientID === evaluator.id()) {
         add({ code: "reasonable_reparations", impact: 30 });
@@ -89,6 +111,71 @@ export function evaluateDiplomaticProposal(
             impact: -45,
             detail: `${term.amount}`,
           });
+      }
+    } else if (term.kind === "formal_apology") {
+      const incident = game.diplomaticIncident(term.incidentID);
+      if (term.offenderID === evaluator.id()) {
+        add({
+          code: "accountability",
+          impact: incident?.evidence === "confirmed" ? 22 : 8,
+          detail: incident?.type,
+        });
+        if (evaluator.governmentProfile().style === "hawkish") {
+          add({ code: "government_preference", impact: -12 });
+        }
+        add({
+          code: "faction_influence",
+          impact: Math.round(
+            (faction("diplomats") - faction("military")) * 0.35,
+          ),
+          detail: "diplomates contre militaires",
+        });
+      } else {
+        add({ code: "accountability", impact: 25 });
+      }
+    } else if (term.kind === "return_trade_ship") {
+      const incident = game.diplomaticIncident(term.incidentID);
+      add({
+        code: "accountability",
+        impact: incident?.evidence === "confirmed" ? 30 : 10,
+        detail: "restitution du navire",
+      });
+    } else if (term.kind === "cede_region") {
+      const region = game
+        .historicalRegions()
+        .find((candidate) => candidate.id === term.regionID);
+      const strategic = agenda.strategicRegions.find(
+        (candidate) => candidate.regionID === term.regionID,
+      );
+      if (term.recipientID === evaluator.id()) {
+        add({
+          code: "strategic_region",
+          impact: strategic === undefined ? 30 : 30 + strategic.priority / 4,
+          detail: region?.name ?? `${term.regionID}`,
+        });
+      } else {
+        add({
+          code: "strategic_region",
+          impact: strategic === undefined ? -35 : -35 - strategic.priority / 3,
+          detail: region?.name ?? `${term.regionID}`,
+        });
+        if (proposer.warGoalRegionAgainst(evaluator) === term.regionID) {
+          add({ code: "military_disadvantage", impact: 18 });
+        }
+        const ratio = proposer.troops() / Math.max(1, evaluator.troops());
+        if (ratio >= 1.25) add({ code: "military_disadvantage", impact: 22 });
+        else if (ratio < 0.8) add({ code: "military_leverage", impact: -18 });
+        add({
+          code: "faction_influence",
+          impact: Math.round(
+            (faction("diplomats") +
+              faction("isolationists") -
+              faction("military") -
+              faction("expansionists")) *
+              0.35,
+          ),
+          detail: "paix contre intérêts territoriaux",
+        });
       }
     }
   }

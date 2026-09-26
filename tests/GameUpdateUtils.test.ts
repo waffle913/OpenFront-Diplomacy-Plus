@@ -177,6 +177,31 @@ describe("diffPlayerUpdate", () => {
     expect(diff?.nationalAgenda).toEqual(agenda);
   });
 
+  it("transmits political faction changes and detaches the client state", () => {
+    const factions = [
+      {
+        type: "military" as const,
+        influence: 24,
+        trend: 1 as const,
+        reason: "External tensions favor military readiness",
+      },
+      {
+        type: "merchants" as const,
+        influence: 20,
+        trend: 0 as const,
+        reason: "Trade interests remain stable",
+      },
+    ];
+    const diff = diffPlayerUpdate(
+      makePlayerUpdate({ politicalFactions: [] }),
+      makePlayerUpdate({ politicalFactions: factions }),
+    )!;
+    const state = makePlayerState();
+    applyStateUpdate(state, diff);
+    expect(state.politicalFactions).toEqual(factions);
+    expect(state.politicalFactions).not.toBe(diff.politicalFactions);
+  });
+
   it("transmits consumption and shortage changes", () => {
     const prev = makePlayerUpdate({
       foodConsumption: 1,
