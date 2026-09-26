@@ -5,6 +5,7 @@ import {
   DiplomaticIncident,
   DiplomaticProposal,
   DiplomaticTerm,
+  InternationalResolutionKind,
   isDiplomacyPlusParticipant,
   NationalConcernType,
   NationalGoalType,
@@ -21,6 +22,7 @@ import {
   SendDiplomaticProposalIntentEvent,
   SendDomesticPolicyIntentEvent,
   SendEmbargoIntentEvent,
+  SendInternationalOrganizationIntentEvent,
   SendMobilizationIntentEvent,
   SendTradeIntentEvent,
 } from "../../Transport";
@@ -34,6 +36,7 @@ type CountryMenuTab =
   | "diplomacy"
   | "trade"
   | "crises"
+  | "international"
   | "government";
 
 const MENU_TABS: { id: CountryMenuTab; icon: string; label: string }[] = [
@@ -43,6 +46,7 @@ const MENU_TABS: { id: CountryMenuTab; icon: string; label: string }[] = [
   { id: "diplomacy", icon: "🤝", label: "Diplomatie" },
   { id: "trade", icon: "📦", label: "Commerce" },
   { id: "crises", icon: "⚠", label: "Crises" },
+  { id: "international", icon: "🌐", label: "International" },
   { id: "government", icon: "👑", label: "Gouvernement" },
 ];
 
@@ -375,8 +379,176 @@ export class DiplomacyPanel extends LitElement implements Controller {
       return this.renderDiplomacy(my, selected);
     if (this.activeTab === "trade") return this.renderTrade(my, selected);
     if (this.activeTab === "crises") return this.renderCrises(my, selected);
+    if (this.activeTab === "international")
+      return this.renderInternational(my, selected);
     if (this.activeTab === "government") return this.renderGovernment(my);
     return this.renderCountry(selected);
+  }
+
+  private sendInternational(
+    action: "create" | "join" | "propose" | "vote",
+    data: ConstructorParameters<
+      typeof SendInternationalOrganizationIntentEvent
+    >[1],
+  ) {
+    this.eventBus.emit(
+      new SendInternationalOrganizationIntentEvent(action, data),
+    );
+  }
+
+  private renderInternational(my: PlayerView, selected: PlayerView) {
+    const organizations = my.internationalOrganizations();
+    const resolutions = my.internationalResolutions();
+    const possibleFounders = this.game
+      .players()
+      .filter(
+        (player) =>
+          player !== my &&
+          player.isAlive() &&
+          isDiplomacyPlusParticipant(player),
+      )
+      .sort((a, b) => a.id().localeCompare(b.id()));
+    const selectedFounder =
+      selected !== my && possibleFounders.includes(selected) ? selected : null;
+    const cofounders = [
+      ...(selectedFounder ? [selectedFounder] : []),
+      ...possibleFounders.filter((player) => player !== selectedFounder),
+    ].slice(0, 2);
+
+    return html`<div class="mb-4 border-b border-amber-500/25 pb-3">
+        <div class="eu4-title">Coopération internationale</div>
+        <h2 class="text-2xl font-black">Organisations et résolutions</h2>
+        <p class="mt-1 text-xs text-slate-400">
+          Les votes sont exécutés même pendant la pause. Les réponses des
+          nations continuent lorsque le temps reprend.
+        </p>
+      </div>
+      ${organizations.length === 0
+        ? html`<div class="eu4-card mb-3">
+            <div class="eu4-title mb-2">Fonder une organisation</div>
+            <p class="mb-3 text-xs text-slate-300">
+              Coalition proposée avec
+              ${cofounders.length
+                ? cofounders.map((player) => player.displayName()).join(" et ")
+                : "deux autres nations"}.
+            </p>
+            <button
+              class="eu4-action"
+              ?disabled=${cofounders.length < 2}
+              @click=${() =>
+                this.sendInternational("create", {
+                  name: "Conseil international",
+                  memberIDs: cofounders.map((player) => player.id()),
+                  principles: [
+                    "protect_trade",
+                    "mediate_disputes",
+                    "oppose_unjustified_wars",
+                    "collective_sanctions",
+                  ],
+                })}
+            >
+              🌐 Fonder le Conseil international
+            </button>
+          </div>`
+        : nothing}
+      <div class="grid gap-3">
+        ${organizations.map((organization) => {
+          const isMember = organization.memberIDs.includes(my.id());
+          return html`<section class="eu4-card">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="eu4-title">${organization.name}</div>
+                <div class="mt-1 text-xs text-slate-300">
+                  ${organization.memberIDs
+                    .map((id) => this.playerName(id))
+                    .join(" • ")}
+                </div>
+                <div class="mt-2 text-[11px] text-slate-400">
+                  Charte : ${organization.principles.join(", ")}
+                </div>
+              </div>
+              ${!isMember
+                ? html`<button
+                    class="eu4-action"
+                    @click=${() =>
+                      this.sendInternational("join", {
+                        organizationID: organization.id,
+                      })}
+                  >
+                    Rejoindre
+                  </button>`
+                : nothing}
+            </div>
+            ${isMember && selected !== my
+              ? html`<div class="mt-3 flex flex-wrap gap-2">
+                  ${(
+                    [
+                      ["condemn", "Condamner"],
+                      ["collective_sanctions", "Sanctions collectives"],
+                    ] as [InternationalResolutionKind, string][]
+                  ).map(
+                    ([kind, label]) =>
+                      html`<button
+                        class="eu4-action"
+                        @click=${() =>
+                          this.sendInternational("propose", {
+                            organizationID: organization.id,
+                            resolutionKind: kind,
+                            targetID: selected.id(),
+                          })}
+                      >
+                        ${label} ${selected.displayName()}
+                      </button>`,
+                  )}
+                </div>`
+              : nothing}
+          </section>`;
+        })}
+      </div>
+      <div class="eu4-title mb-2 mt-5">Résolutions</div>
+      ${resolutions.length === 0
+        ? html`<p class="text-xs text-slate-400">Aucune résolution visible.</p>`
+        : resolutions.map((resolution) => {
+            const hasVoted = resolution.votes.some(
+              (vote) => vote.voterID === my.id(),
+            );
+            return html`<div class="eu4-card mb-2">
+              <div class="flex justify-between gap-3">
+                <b class="text-sm">${resolution.kind}</b>
+                <span class="text-xs uppercase text-amber-300"
+                  >${resolution.status}</span
+                >
+              </div>
+              <div class="mt-1 text-xs text-slate-300">
+                Cible : ${this.playerName(resolution.targetID)} ·
+                ${resolution.votes.length} vote(s)
+              </div>
+              ${resolution.status === "voting" && !hasVoted
+                ? html`<div class="mt-3 flex gap-2">
+                    ${(
+                      [
+                        ["for", "Pour"],
+                        ["against", "Contre"],
+                        ["abstain", "Abstention"],
+                      ] as const
+                    ).map(
+                      ([vote, label]) =>
+                        html`<button
+                          class="eu4-action"
+                          @click=${() =>
+                            this.sendInternational("vote", {
+                              resolutionID: resolution.id,
+                              vote,
+                              reason: "Décision du gouvernement",
+                            })}
+                        >
+                          ${label}
+                        </button>`,
+                    )}
+                  </div>`
+                : nothing}
+            </div>`;
+          })}`;
   }
 
   private renderCountry(player: PlayerView) {

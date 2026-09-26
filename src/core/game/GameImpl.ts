@@ -969,6 +969,10 @@ export class GameImpl implements Game {
     return this.internationalOrganizationRegistry.allOrganizations();
   }
 
+  internationalOrganizationVersion(): number {
+    return this.internationalOrganizationRegistry.version();
+  }
+
   internationalResolutionsFor(
     playerID: PlayerID,
   ): readonly InternationalResolution[] {

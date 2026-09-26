@@ -102,6 +102,14 @@ export function diffPlayerUpdate(
       prev.diplomaticIncidents,
       next.diplomaticIncidents,
     ) &&
+    internationalOrganizationArrayEqual(
+      prev.internationalOrganizations,
+      next.internationalOrganizations,
+    ) &&
+    internationalResolutionArrayEqual(
+      prev.internationalResolutions,
+      next.internationalResolutions,
+    ) &&
     casusBelliArrayEqual(prev.casusBelli, next.casusBelli) &&
     warGoalArrayEqual(prev.warGoals, next.warGoals) &&
     napArrayEqual(prev.nonAggressionPacts, next.nonAggressionPacts) &&
@@ -223,10 +231,7 @@ export function diffPlayerUpdate(
   );
   setIfDifferent(
     "politicalFactions",
-    politicalFactionArrayEqual(
-      prev.politicalFactions,
-      next.politicalFactions,
-    ),
+    politicalFactionArrayEqual(prev.politicalFactions, next.politicalFactions),
   );
   setIfDifferent(
     "nationalInterests",
@@ -267,6 +272,20 @@ export function diffPlayerUpdate(
     diplomaticIncidentArrayEqual(
       prev.diplomaticIncidents,
       next.diplomaticIncidents,
+    ),
+  );
+  setIfDifferent(
+    "internationalOrganizations",
+    internationalOrganizationArrayEqual(
+      prev.internationalOrganizations,
+      next.internationalOrganizations,
+    ),
+  );
+  setIfDifferent(
+    "internationalResolutions",
+    internationalResolutionArrayEqual(
+      prev.internationalResolutions,
+      next.internationalResolutions,
     ),
   );
   setIfDifferent(
@@ -432,6 +451,23 @@ export function applyStateUpdate(target: PlayerState, pu: PlayerUpdate): void {
     target.diplomaticIncidents = pu.diplomaticIncidents.map((incident) => ({
       ...incident,
     }));
+  }
+  if (pu.internationalOrganizations !== undefined) {
+    target.internationalOrganizations = pu.internationalOrganizations.map(
+      (organization) => ({
+        ...organization,
+        memberIDs: organization.memberIDs.slice(),
+        principles: organization.principles.slice(),
+      }),
+    );
+  }
+  if (pu.internationalResolutions !== undefined) {
+    target.internationalResolutions = pu.internationalResolutions.map(
+      (resolution) => ({
+        ...resolution,
+        votes: resolution.votes.map((vote) => ({ ...vote })),
+      }),
+    );
   }
   if (pu.casusBelli !== undefined) target.casusBelli = pu.casusBelli.slice();
   if (pu.warGoals !== undefined) target.warGoals = pu.warGoals.slice();
@@ -748,6 +784,64 @@ function diplomaticIncidentArrayEqual(
       x.restitutionAvailable !== y.restitutionAvailable
     ) {
       return false;
+    }
+  }
+  return true;
+}
+
+function internationalOrganizationArrayEqual(
+  a?: NonNullable<PlayerUpdate["internationalOrganizations"]>,
+  b?: NonNullable<PlayerUpdate["internationalOrganizations"]>,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.name !== y.name ||
+      x.founderID !== y.founderID ||
+      x.createdAt !== y.createdAt ||
+      !stringArrayEqual(x.memberIDs, y.memberIDs) ||
+      !stringArrayEqual(x.principles, y.principles)
+    )
+      return false;
+  }
+  return true;
+}
+
+function internationalResolutionArrayEqual(
+  a?: NonNullable<PlayerUpdate["internationalResolutions"]>,
+  b?: NonNullable<PlayerUpdate["internationalResolutions"]>,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.organizationID !== y.organizationID ||
+      x.proposerID !== y.proposerID ||
+      x.kind !== y.kind ||
+      x.targetID !== y.targetID ||
+      x.beneficiaryID !== y.beneficiaryID ||
+      x.incidentID !== y.incidentID ||
+      x.amount !== y.amount ||
+      x.createdAt !== y.createdAt ||
+      x.closesAt !== y.closesAt ||
+      x.status !== y.status ||
+      x.votes.length !== y.votes.length
+    )
+      return false;
+    for (let j = 0; j < x.votes.length; j++) {
+      if (
+        x.votes[j].voterID !== y.votes[j].voterID ||
+        x.votes[j].choice !== y.votes[j].choice ||
+        x.votes[j].reason !== y.votes[j].reason
+      )
+        return false;
     }
   }
   return true;

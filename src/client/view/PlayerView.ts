@@ -155,6 +155,17 @@ function stateFromUpdate(pu: PlayerUpdate): PlayerState {
       })) ?? [],
     diplomaticIncidents:
       pu.diplomaticIncidents?.map((incident) => ({ ...incident })) ?? [],
+    internationalOrganizations:
+      pu.internationalOrganizations?.map((organization) => ({
+        ...organization,
+        memberIDs: organization.memberIDs.slice(),
+        principles: organization.principles.slice(),
+      })) ?? [],
+    internationalResolutions:
+      pu.internationalResolutions?.map((resolution) => ({
+        ...resolution,
+        votes: resolution.votes.map((vote) => ({ ...vote })),
+      })) ?? [],
     casusBelli: pu.casusBelli?.slice() ?? [],
     warGoals: pu.warGoals?.slice() ?? [],
     nonAggressionPacts: pu.nonAggressionPacts?.slice() ?? [],
@@ -847,6 +858,12 @@ export class PlayerView {
   }
   diplomaticIncidents() {
     return this.state.diplomaticIncidents ?? [];
+  }
+  internationalOrganizations() {
+    return this.state.internationalOrganizations ?? [];
+  }
+  internationalResolutions() {
+    return this.state.internationalResolutions ?? [];
   }
   casusBelli() {
     return this.state.casusBelli ?? [];

@@ -20,8 +20,13 @@ export class InternationalOrganizationRegistry {
   private readonly resolutions = new Map<string, InternationalResolution>();
   private nextOrganizationID = 1;
   private nextResolutionID = 1;
+  private revision = 0;
 
   constructor(private readonly game: Game) {}
+
+  version(): number {
+    return this.revision;
+  }
 
   allOrganizations(): readonly InternationalOrganization[] {
     return [...this.organizations.values()].sort((a, b) =>
@@ -81,6 +86,7 @@ export class InternationalOrganizationRegistry {
       createdAt: this.game.ticks(),
     };
     this.organizations.set(organization.id, organization);
+    this.revision++;
     return organization;
   }
 
@@ -95,6 +101,7 @@ export class InternationalOrganizationRegistry {
       return false;
     }
     organization.memberIDs = [...organization.memberIDs, actor.id()].sort();
+    this.revision++;
     return true;
   }
 
@@ -115,6 +122,7 @@ export class InternationalOrganizationRegistry {
         .sort((a, b) => a.createdAt - b.createdAt)[0];
       if (oldestClosed === undefined) return null;
       this.resolutions.delete(oldestClosed.id);
+      this.revision++;
     }
     const organization = this.organizations.get(organizationID);
     if (
@@ -162,6 +170,7 @@ export class InternationalOrganizationRegistry {
       votes: [],
     };
     this.resolutions.set(resolution.id, resolution);
+    this.revision++;
     return resolution;
   }
 
@@ -193,6 +202,7 @@ export class InternationalOrganizationRegistry {
       reason: reason.slice(0, 160),
     });
     resolution.votes.sort((a, b) => a.voterID.localeCompare(b.voterID));
+    this.revision++;
     const activeMembers = organization.memberIDs.filter(
       (memberID) =>
         this.game.hasPlayer(memberID) && this.game.player(memberID).isAlive(),
@@ -244,6 +254,7 @@ export class InternationalOrganizationRegistry {
       votesFor.length > votesAgainst.length
         ? "passed"
         : "rejected";
+    this.revision++;
     if (
       resolution.status !== "passed" ||
       !this.game.hasPlayer(resolution.targetID)

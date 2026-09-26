@@ -53,6 +53,7 @@ import {
   SendAttackIntentEvent,
   SendDonateGoldIntentEvent,
   SendHashEvent,
+  SendInternationalOrganizationIntentEvent,
   SendKickPlayerIntentEvent,
   SendSpawnIntentEvent,
   SendWinnerEvent,
@@ -187,7 +188,12 @@ describe("Transport send paths", () => {
         { type: "intent", intent: { type: "spawn", tile: 123 } },
         {
           type: "intent",
-          intent: { type: "attack", targetID: "player01", troops: 50 },
+          intent: {
+            type: "attack",
+            targetID: "player01",
+            troops: 50,
+            targetTile: null,
+          },
         },
         {
           type: "intent",
@@ -207,6 +213,28 @@ describe("Transport send paths", () => {
       expect(decodeFrames(ws)).toContainEqual({
         type: "intent",
         intent: { type: "kick_player", targetClientID: "player01" },
+      });
+    });
+
+    it("sends international organization commands through the normal wire", () => {
+      const { eventBus, ws } = connected();
+      eventBus.emit(
+        new SendInternationalOrganizationIntentEvent("vote", {
+          resolutionID: "ir:1",
+          vote: "against",
+          reason: "Intérêt national",
+        }),
+      );
+
+      expect(decodeFrames(ws)).toContainEqual({
+        type: "intent",
+        intent: {
+          type: "international_organization",
+          action: "vote",
+          resolutionID: "ir:1",
+          vote: "against",
+          reason: "Intérêt national",
+        },
       });
     });
 

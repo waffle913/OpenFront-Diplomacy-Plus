@@ -125,6 +125,22 @@ const SAMPLE_INTENTS: StampedIntent[] = [
     ],
   },
   {
+    type: "international_organization",
+    clientID: P1,
+    action: "create",
+    name: "Conseil international",
+    memberIDs: [P2, P3],
+    principles: ["protect_trade", "mediate_disputes"],
+  },
+  {
+    type: "international_organization",
+    clientID: P2,
+    action: "vote",
+    resolutionID: "ir:1",
+    vote: "for",
+    reason: "Sécurité collective",
+  },
+  {
     type: "diplomatic_incident",
     clientID: P1,
     action: "sanction",

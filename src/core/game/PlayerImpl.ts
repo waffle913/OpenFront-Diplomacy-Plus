@@ -297,6 +297,13 @@ export class PlayerImpl implements Player {
         value: NonNullable<PlayerUpdate["diplomaticIncidents"]>;
       }
     | undefined;
+  private cachedInternationalState:
+    | {
+        version: number;
+        organizations: NonNullable<PlayerUpdate["internationalOrganizations"]>;
+        resolutions: NonNullable<PlayerUpdate["internationalResolutions"]>;
+      }
+    | undefined;
   private _governmentStyle: GovernmentStyle;
   private _governmentGeneration = 1;
   private _governmentTermEndsAt: Tick;
@@ -631,6 +638,36 @@ export class PlayerImpl implements Player {
       };
     }
 
+    const internationalVersion = this.mg.internationalOrganizationVersion();
+    let internationalOrganizations =
+      this.cachedInternationalState?.organizations;
+    let internationalResolutions = this.cachedInternationalState?.resolutions;
+    if (
+      diplomacyPlusEnabled &&
+      (internationalOrganizations === undefined ||
+        internationalResolutions === undefined ||
+        this.cachedInternationalState?.version !== internationalVersion)
+    ) {
+      internationalOrganizations = this.mg
+        .internationalOrganizations()
+        .map((organization) => ({
+          ...organization,
+          memberIDs: organization.memberIDs.slice(),
+          principles: organization.principles.slice(),
+        }));
+      internationalResolutions = this.mg
+        .internationalResolutionsFor(this.id())
+        .map((resolution) => ({
+          ...resolution,
+          votes: resolution.votes.map((vote) => ({ ...vote })),
+        }));
+      this.cachedInternationalState = {
+        version: internationalVersion,
+        organizations: internationalOrganizations,
+        resolutions: internationalResolutions,
+      };
+    }
+
     return {
       type: GameUpdateType.Player,
       clientID: this.clientID(),
@@ -738,6 +775,12 @@ export class PlayerImpl implements Player {
         : undefined,
       diplomaticIncidents: diplomacyPlusEnabled
         ? diplomaticIncidents
+        : undefined,
+      internationalOrganizations: diplomacyPlusEnabled
+        ? internationalOrganizations
+        : undefined,
+      internationalResolutions: diplomacyPlusEnabled
+        ? internationalResolutions
         : undefined,
       casusBelli: diplomacyPlusEnabled
         ? Array.from(this.casusBelli.values())

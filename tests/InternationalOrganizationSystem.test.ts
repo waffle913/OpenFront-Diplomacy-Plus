@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { InternationalOrganizationExecution } from "../src/core/execution/InternationalOrganizationExecution";
 import { Game, Player, PlayerInfo, PlayerType } from "../src/core/game/Game";
 import { evaluateInternationalResolutionVote } from "../src/core/game/InternationalOrganizationRegistry";
 import { setup } from "./util/Setup";
@@ -168,5 +169,40 @@ describe("international organization registry", () => {
     expect(
       evaluateInternationalResolutionVote(game, allyA, resolution).reason,
     ).toContain(":");
+  });
+
+  it("creates organizations and records votes while paused without advancing time", () => {
+    const tick = game.ticks();
+    game.setPaused(true);
+    game.executePausedActions([
+      new InternationalOrganizationExecution(founder, "create", {
+        name: "Conseil de pause",
+        memberIDs: [allyA.id(), allyB.id()],
+        principles: ["mediate_disputes"],
+      }),
+    ]);
+    const organization = game.internationalOrganizations()[0];
+    expect(organization.name).toBe("Conseil de pause");
+    expect(game.ticks()).toBe(tick);
+
+    const resolution = game.proposeInternationalResolution(
+      founder,
+      organization.id,
+      "condemn",
+      target,
+    )!;
+    game.executePausedActions([
+      new InternationalOrganizationExecution(founder, "vote", {
+        resolutionID: resolution.id,
+        vote: "for",
+        reason: "Décision immédiate",
+      }),
+    ]);
+    expect(resolution.votes).toContainEqual({
+      voterID: founder.id(),
+      choice: "for",
+      reason: "Décision immédiate",
+    });
+    expect(game.ticks()).toBe(tick);
   });
 });

@@ -48,6 +48,7 @@ export type Intent =
   | DiplomacyPlusIntent
   | DiplomaticProposalIntent
   | DiplomaticIncidentIntent
+  | InternationalOrganizationIntent
   | TradeIntent
   | DomesticPolicyIntent
   | MilitaryMobilizationIntent
@@ -82,6 +83,9 @@ export type DiplomaticProposalIntent = z.infer<
 >;
 export type DiplomaticIncidentIntent = z.infer<
   typeof DiplomaticIncidentIntentSchema
+>;
+export type InternationalOrganizationIntent = z.infer<
+  typeof InternationalOrganizationIntentSchema
 >;
 export type TradeIntent = z.infer<typeof TradeIntentSchema>;
 export type DomesticPolicyIntent = z.infer<typeof DomesticPolicyIntentSchema>;
@@ -755,6 +759,46 @@ export const DiplomaticIncidentIntentSchema = z.object({
   incidentID: z.string().max(128),
 });
 
+export const InternationalOrganizationIntentSchema = z.object({
+  type: z.literal("international_organization"),
+  action: z.union([
+    z.literal("create"),
+    z.literal("join"),
+    z.literal("propose"),
+    z.literal("vote"),
+  ]),
+  name: z.string().min(3).max(64).optional(),
+  memberIDs: z.array(MappedID).max(15).optional(),
+  principles: z
+    .array(
+      z.union([
+        z.literal("protect_trade"),
+        z.literal("mediate_disputes"),
+        z.literal("oppose_unjustified_wars"),
+        z.literal("collective_sanctions"),
+      ]),
+    )
+    .max(4)
+    .optional(),
+  organizationID: z.string().max(128).optional(),
+  resolutionID: z.string().max(128).optional(),
+  resolutionKind: z
+    .union([
+      z.literal("condemn"),
+      z.literal("demand_reparations"),
+      z.literal("collective_sanctions"),
+    ])
+    .optional(),
+  targetID: MappedID.optional(),
+  beneficiaryID: MappedID.optional(),
+  incidentID: z.string().max(128).optional(),
+  amount: zb.uint({ min: 1, max: 1000000 }).optional(),
+  vote: z
+    .union([z.literal("for"), z.literal("against"), z.literal("abstain")])
+    .optional(),
+  reason: z.string().max(160).optional(),
+});
+
 export const DiplomaticProposalIntentSchema = z.object({
   type: z.literal("diplomatic_proposal"),
   action: z.union([
@@ -919,6 +963,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   DiplomacyPlusIntentSchema,
   DiplomaticProposalIntentSchema,
   DiplomaticIncidentIntentSchema,
+  InternationalOrganizationIntentSchema,
   TradeIntentSchema,
   DomesticPolicyIntentSchema,
   MilitaryMobilizationIntentSchema,

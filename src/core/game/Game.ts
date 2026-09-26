@@ -1429,6 +1429,7 @@ export interface Game extends GameMap {
   settleDiplomaticIncident(id: string, amount: number): void;
   escalateDiplomaticIncident(id: string): void;
   internationalOrganizations(): readonly InternationalOrganization[];
+  internationalOrganizationVersion(): number;
   internationalResolutionsFor(
     playerID: PlayerID,
   ): readonly InternationalResolution[];

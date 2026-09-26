@@ -19,6 +19,7 @@ import { DonateTroopsExecution } from "./DonateTroopExecution";
 import { EmbargoAllExecution } from "./EmbargoAllExecution";
 import { EmbargoExecution } from "./EmbargoExecution";
 import { EmojiExecution } from "./EmojiExecution";
+import { InternationalOrganizationExecution } from "./InternationalOrganizationExecution";
 import { MarkDisconnectedExecution } from "./MarkDisconnectedExecution";
 import { MobilizationPolicyExecution } from "./MobilizationPolicyExecution";
 import { MoveWarshipExecution } from "./MoveWarshipExecution";
@@ -150,6 +151,21 @@ export class Executor {
           intent.action,
           intent.incidentID,
         );
+      case "international_organization":
+        return new InternationalOrganizationExecution(player, intent.action, {
+          name: intent.name,
+          memberIDs: intent.memberIDs,
+          principles: intent.principles,
+          organizationID: intent.organizationID,
+          resolutionID: intent.resolutionID,
+          resolutionKind: intent.resolutionKind,
+          targetID: intent.targetID,
+          beneficiaryID: intent.beneficiaryID,
+          incidentID: intent.incidentID,
+          amount: intent.amount,
+          vote: intent.vote,
+          reason: intent.reason,
+        });
       case "trade":
         return new TradeExecution(
           player,

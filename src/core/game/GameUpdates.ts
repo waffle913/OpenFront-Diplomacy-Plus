@@ -6,6 +6,8 @@ import {
   EmojiMessage,
   GameUpdates,
   Gold,
+  InternationalOrganization,
+  InternationalResolution,
   MessageType,
   NameViewData,
   NationalAgenda,
@@ -366,6 +368,8 @@ export interface PlayerUpdate {
   /** Proposals visible to this player, including recent terminal states. */
   diplomaticProposals?: DiplomaticProposal[];
   diplomaticIncidents?: DiplomaticIncident[];
+  internationalOrganizations?: InternationalOrganization[];
+  internationalResolutions?: InternationalResolution[];
   casusBelli?: CasusBelliUpdate[];
   /** Diplomacy+ active war goals keyed by target PlayerID. */
   warGoals?: {

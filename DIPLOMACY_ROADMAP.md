@@ -211,9 +211,9 @@ Critère de sortie : une nation pilotée par LLM a une politique suivie et compr
 
 ### 10. Organisation internationale
 
-**Fondation moteur en développement.** Un registre séparé possède les organisations, leur charte, leurs membres, les résolutions et les votes. Une fondation exige au moins trois pays. Les premières résolutions couvrent la condamnation, la demande de réparations et les sanctions collectives. Le quorum, le résultat et les motivations des votes sont déterministes. Une résolution adoptée modifie la réputation et la mémoire diplomatique ; les sanctions sont appliquées uniquement par les pays ayant voté pour. Une demande de réparations adoptée ouvre une proposition bilatérale ordinaire, qui reste soumise à validation et peut encore être acceptée ou refusée.
+**Première boucle joueur implémentée, vérifiée techniquement.** Un registre séparé possède les organisations, leur charte, leurs membres, les résolutions et les votes. Une fondation exige au moins trois pays. Les premières résolutions couvrent la condamnation, la demande de réparations et les sanctions collectives. Le quorum, le résultat et les motivations des votes sont déterministes. Une résolution adoptée modifie la réputation et la mémoire diplomatique ; les sanctions sont appliquées uniquement par les pays ayant voté pour. Une demande de réparations adoptée ouvre une proposition bilatérale ordinaire, qui reste soumise à validation et peut encore être acceptée ou refusée. L'état international est maintenant synchronisé vers le client par instantanés versionnés. Le menu permanent permet de fonder ou rejoindre une organisation, soumettre une condamnation ou des sanctions et voter. Ces ordres passent par le transport réseau normal et sont applicables pendant la pause sans avancer la date.
 
-Lots suivants : transport réseau, interface de création et de vote pour le joueur, adhésion négociée, possibilité d'ignorer une résolution avec coût politique, puis casus belli `Enforce Resolution`.
+Lots suivants : adhésion négociée au lieu de l'entrée immédiate, sélection libre des cofondateurs et principes de charte, interface de demande de réparations fondée sur un incident, possibilité d'ignorer une résolution avec coût politique, puis casus belli `Enforce Resolution`.
 
 À tester : coalition minimale, double vote, quorum, abstention, disparition d'un membre, incident devenu caduc et absence de double application.
 
@@ -233,4 +233,4 @@ Demandé après validation du calendrier. Les ordres solo sont transmis pendant 
 
 ## Prochain lot concret
 
-Valider en partie deux scénarios complets : l'incident maritime jusqu'à sa résolution ou son ultimatum, puis une paix comprenant la cession d'une région historique. Corriger d'abord toute brèche de territoire, de trêve ou de double règlement. Le prochain système majeur sera la fondation d'une organisation internationale et son registre de résolutions ; il doit rester séparé du registre des propositions bilatérales.
+Valider en partie deux scénarios complets : l'incident maritime jusqu'à sa résolution ou son ultimatum, puis une paix comprenant la cession d'une région historique. Tester ensuite la nouvelle boucle internationale : fondation à trois pays, résolution contre un pays sélectionné, votes pendant la pause, reprise du temps et application unique du résultat. Le prochain lot moteur est l'adhésion négociée et le coût politique du refus d'une résolution.

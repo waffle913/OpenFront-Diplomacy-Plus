@@ -66,6 +66,46 @@ describe("diffPlayerUpdate", () => {
     });
   });
 
+  it("transmits international votes and detaches their mutable arrays", () => {
+    const organization = {
+      id: "io:1",
+      name: "Conseil",
+      founderID: "player-a",
+      memberIDs: ["player-a", "b", "c"],
+      principles: ["mediate_disputes" as const],
+      createdAt: 12,
+    };
+    const resolution = {
+      id: "ir:1",
+      organizationID: "io:1",
+      proposerID: "player-a",
+      kind: "condemn" as const,
+      targetID: "d",
+      createdAt: 13,
+      closesAt: 613,
+      status: "voting" as const,
+      votes: [{ voterID: "player-a", choice: "for" as const, reason: "Oui" }],
+    };
+    const prev = makePlayerUpdate({
+      internationalOrganizations: [organization],
+      internationalResolutions: [],
+    });
+    const next = makePlayerUpdate({
+      internationalOrganizations: [organization],
+      internationalResolutions: [resolution],
+    });
+    const diff = diffPlayerUpdate(prev, next)!;
+    expect(diff.internationalResolutions).toEqual([resolution]);
+
+    const state = makePlayerState();
+    applyStateUpdate(state, diff);
+    expect(state.internationalResolutions).toEqual([resolution]);
+    expect(state.internationalResolutions).not.toBe(
+      diff.internationalResolutions,
+    );
+    expect(state.internationalResolutions![0].votes).not.toBe(resolution.votes);
+  });
+
   it("transmits structured diplomatic relation and memory changes", () => {
     const prev = makePlayerUpdate({
       diplomaticRelations: [],

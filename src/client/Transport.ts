@@ -12,6 +12,9 @@ import {
   DiplomaticTerm,
   GameType,
   Gold,
+  InternationalCharterPrinciple,
+  InternationalResolutionKind,
+  InternationalVoteChoice,
   PlayerID,
   Tick,
   UnitType,
@@ -183,6 +186,26 @@ export class SendDiplomaticIncidentIntentEvent implements GameEvent {
   constructor(
     public readonly action: "protest" | "dismiss" | "sanction" | "ultimatum",
     public readonly incidentID: string,
+  ) {}
+}
+
+export class SendInternationalOrganizationIntentEvent implements GameEvent {
+  constructor(
+    public readonly action: "create" | "join" | "propose" | "vote",
+    public readonly data: {
+      name?: string;
+      memberIDs?: PlayerID[];
+      principles?: InternationalCharterPrinciple[];
+      organizationID?: string;
+      resolutionID?: string;
+      resolutionKind?: InternationalResolutionKind;
+      targetID?: PlayerID;
+      beneficiaryID?: PlayerID;
+      incidentID?: string;
+      amount?: number;
+      vote?: InternationalVoteChoice;
+      reason?: string;
+    },
   ) {}
 }
 
@@ -389,6 +412,9 @@ export class Transport {
     );
     this.subscribe(SendDiplomaticIncidentIntentEvent, (e) =>
       this.onSendDiplomaticIncidentIntent(e),
+    );
+    this.subscribe(SendInternationalOrganizationIntentEvent, (e) =>
+      this.onSendInternationalOrganizationIntent(e),
     );
     this.subscribe(SendTradeIntentEvent, (e) => this.onSendTradeIntent(e));
     this.subscribe(SendDomesticPolicyIntentEvent, (e) =>
@@ -928,6 +954,16 @@ export class Transport {
       type: "diplomatic_incident",
       action: event.action,
       incidentID: event.incidentID,
+    });
+  }
+
+  private onSendInternationalOrganizationIntent(
+    event: SendInternationalOrganizationIntentEvent,
+  ) {
+    this.sendIntent({
+      type: "international_organization",
+      action: event.action,
+      ...event.data,
     });
   }
 

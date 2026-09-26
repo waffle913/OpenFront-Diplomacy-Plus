@@ -2,6 +2,8 @@ import type {
   DiplomaticCrisis,
   DiplomaticIncident,
   DiplomaticProposal,
+  InternationalOrganization,
+  InternationalResolution,
   NationalAgenda,
   PoliticalFaction,
 } from "../../../core/game/Game";
@@ -159,6 +161,8 @@ export interface PlayerState {
   diplomaticCrises?: DiplomaticCrisis[];
   diplomaticProposals?: DiplomaticProposal[];
   diplomaticIncidents?: DiplomaticIncident[];
+  internationalOrganizations?: InternationalOrganization[];
+  internationalResolutions?: InternationalResolution[];
   casusBelli?: {
     type: string;
     targetID: string;
