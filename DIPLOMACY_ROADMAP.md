@@ -209,6 +209,14 @@ Lots :
 
 Critère de sortie : une nation pilotée par LLM a une politique suivie et compréhensible, tandis que le jeu continue normalement sans accès au modèle.
 
+### 10. Organisation internationale
+
+**Fondation moteur en développement.** Un registre séparé possède les organisations, leur charte, leurs membres, les résolutions et les votes. Une fondation exige au moins trois pays. Les premières résolutions couvrent la condamnation, la demande de réparations et les sanctions collectives. Le quorum, le résultat et les motivations des votes sont déterministes. Une résolution adoptée modifie la réputation et la mémoire diplomatique ; les sanctions sont appliquées uniquement par les pays ayant voté pour. Une demande de réparations adoptée ouvre une proposition bilatérale ordinaire, qui reste soumise à validation et peut encore être acceptée ou refusée.
+
+Lots suivants : transport réseau, interface de création et de vote pour le joueur, adhésion négociée, possibilité d'ignorer une résolution avec coût politique, puis casus belli `Enforce Resolution`.
+
+À tester : coalition minimale, double vote, quorum, abstention, disparition d'un membre, incident devenu caduc et absence de double application.
+
 ## Règles transversales
 
 - Les mécaniques dépendent du monde généré et des données de la carte, pas de noms de pays imposés.

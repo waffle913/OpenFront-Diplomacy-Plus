@@ -29,6 +29,11 @@ import {
   GameUpdates,
   HistoricalRegion,
   HumansVsNations,
+  InternationalCharterPrinciple,
+  InternationalOrganization,
+  InternationalResolution,
+  InternationalResolutionKind,
+  InternationalVoteChoice,
   isDiplomacyPlusParticipant,
   MessageType,
   MutableAlliance,
@@ -53,6 +58,7 @@ import {
 } from "./Game";
 import { GameMap, TileRef } from "./GameMap";
 import { GameUpdate, GameUpdateType } from "./GameUpdates";
+import { InternationalOrganizationRegistry } from "./InternationalOrganizationRegistry";
 import { MotionPlanRecord, packMotionPlans } from "./MotionPlans";
 import { PlayerImpl } from "./PlayerImpl";
 import { RailNetwork } from "./RailNetwork";
@@ -105,6 +111,7 @@ export class GameImpl implements Game {
   };
   private regionalEconomyReady = false;
   private readonly diplomacyRegistry: DiplomacyRegistry;
+  private readonly internationalOrganizationRegistry: InternationalOrganizationRegistry;
   private startTick: number | null = null;
 
   private unInitExecs: Execution[] = [];
@@ -177,6 +184,8 @@ export class GameImpl implements Game {
     }
     this.addPlayers();
     this.diplomacyRegistry = new DiplomacyRegistry(this);
+    this.internationalOrganizationRegistry =
+      new InternationalOrganizationRegistry(this);
 
     console.log(
       `[GameImpl] Constructor total: ${(performance.now() - constructorStart).toFixed(0)}ms`,
@@ -956,6 +965,71 @@ export class GameImpl implements Game {
     this.diplomacyRegistry.escalateIncident(id);
   }
 
+  internationalOrganizations(): readonly InternationalOrganization[] {
+    return this.internationalOrganizationRegistry.allOrganizations();
+  }
+
+  internationalResolutionsFor(
+    playerID: PlayerID,
+  ): readonly InternationalResolution[] {
+    return this.internationalOrganizationRegistry.resolutionsFor(playerID);
+  }
+
+  createInternationalOrganization(
+    founder: Player,
+    name: string,
+    foundingMembers: Player[],
+    principles: InternationalCharterPrinciple[],
+  ): InternationalOrganization | null {
+    return this.internationalOrganizationRegistry.create(
+      founder,
+      name,
+      foundingMembers,
+      principles,
+    );
+  }
+
+  joinInternationalOrganization(
+    actor: Player,
+    organizationID: string,
+  ): boolean {
+    return this.internationalOrganizationRegistry.join(actor, organizationID);
+  }
+
+  proposeInternationalResolution(
+    proposer: Player,
+    organizationID: string,
+    kind: InternationalResolutionKind,
+    target: Player,
+    options?: {
+      beneficiaryID?: PlayerID;
+      incidentID?: string;
+      amount?: number;
+    },
+  ): InternationalResolution | null {
+    return this.internationalOrganizationRegistry.propose(
+      proposer,
+      organizationID,
+      kind,
+      target,
+      options,
+    );
+  }
+
+  voteInternationalResolution(
+    voter: Player,
+    resolutionID: string,
+    choice: InternationalVoteChoice,
+    reason: string,
+  ): boolean {
+    return this.internationalOrganizationRegistry.vote(
+      voter,
+      resolutionID,
+      choice,
+      reason,
+    );
+  }
+
   inSpawnPhase(): boolean {
     return this.startTick === null;
   }
@@ -1026,6 +1100,7 @@ export class GameImpl implements Game {
     // Proposals expire and accepted proposals settle once per regular game
     // tick. executePausedActions deliberately never calls this method.
     this.diplomacyRegistry.tick();
+    this.internationalOrganizationRegistry.tick();
 
     this.removeInactiveExecutions();
 
@@ -1147,7 +1222,11 @@ export class GameImpl implements Game {
     this._players.forEach((p) => {
       hash += p.hash();
     });
-    return hash + this.diplomacyRegistry.hash();
+    return (
+      hash +
+      this.diplomacyRegistry.hash() +
+      this.internationalOrganizationRegistry.hash()
+    );
   }
 
   terraNullius(): TerraNullius {

@@ -511,6 +511,7 @@ export type DiplomaticReasonCode =
   | "last_viable_territory"
   | "strategic_region"
   | "embargo_not_active"
+  | "international_condemnation"
   | "incident_missing"
   | "incident_resolved"
   | "not_incident_victim"
@@ -586,6 +587,47 @@ export interface DiplomaticProposalResult {
   accepted: boolean;
   proposal?: DiplomaticProposal;
   reasons: DiplomaticReason[];
+}
+
+export type InternationalCharterPrinciple =
+  | "protect_trade"
+  | "mediate_disputes"
+  | "oppose_unjustified_wars"
+  | "collective_sanctions";
+export type InternationalResolutionKind =
+  | "condemn"
+  | "demand_reparations"
+  | "collective_sanctions";
+export type InternationalVoteChoice = "for" | "against" | "abstain";
+
+export interface InternationalOrganization {
+  id: string;
+  name: string;
+  founderID: PlayerID;
+  memberIDs: PlayerID[];
+  principles: InternationalCharterPrinciple[];
+  createdAt: Tick;
+}
+
+export interface InternationalResolutionVote {
+  voterID: PlayerID;
+  choice: InternationalVoteChoice;
+  reason: string;
+}
+
+export interface InternationalResolution {
+  id: string;
+  organizationID: string;
+  proposerID: PlayerID;
+  kind: InternationalResolutionKind;
+  targetID: PlayerID;
+  beneficiaryID?: PlayerID;
+  incidentID?: string;
+  amount?: number;
+  createdAt: Tick;
+  closesAt: Tick;
+  status: "voting" | "passed" | "rejected";
+  votes: InternationalResolutionVote[];
 }
 
 export type GovernmentStyle =
@@ -1386,6 +1428,34 @@ export interface Game extends GameMap {
   issueDiplomaticIncidentUltimatum(actor: Player, id: string): boolean;
   settleDiplomaticIncident(id: string, amount: number): void;
   escalateDiplomaticIncident(id: string): void;
+  internationalOrganizations(): readonly InternationalOrganization[];
+  internationalResolutionsFor(
+    playerID: PlayerID,
+  ): readonly InternationalResolution[];
+  createInternationalOrganization(
+    founder: Player,
+    name: string,
+    foundingMembers: Player[],
+    principles: InternationalCharterPrinciple[],
+  ): InternationalOrganization | null;
+  joinInternationalOrganization(actor: Player, organizationID: string): boolean;
+  proposeInternationalResolution(
+    proposer: Player,
+    organizationID: string,
+    kind: InternationalResolutionKind,
+    target: Player,
+    options?: {
+      beneficiaryID?: PlayerID;
+      incidentID?: string;
+      amount?: number;
+    },
+  ): InternationalResolution | null;
+  voteInternationalResolution(
+    voter: Player,
+    resolutionID: string,
+    choice: InternationalVoteChoice,
+    reason: string,
+  ): boolean;
 
   // Units
   unit(id: number): Unit | undefined;

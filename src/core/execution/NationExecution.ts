@@ -16,6 +16,7 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
+import { evaluateInternationalResolutionVote } from "../game/InternationalOrganizationRegistry";
 import { PseudoRandom } from "../PseudoRandom";
 import { GameID } from "../Schemas";
 import { assertNever, simpleHash } from "../Util";
@@ -183,6 +184,7 @@ export class NationExecution implements Execution {
 
     if (ticks % 120 === this.player.smallID() % 120) {
       this.processDiplomaticIncidents();
+      this.processInternationalResolutions();
     }
 
     if (ticks % 900 === this.player.smallID() % 900) {
@@ -314,6 +316,30 @@ export class NationExecution implements Execution {
     if (sanctioned !== undefined) {
       this.mg.issueDiplomaticIncidentUltimatum(this.player, sanctioned.id);
     }
+  }
+
+  private processInternationalResolutions(): void {
+    if (this.player === null || !isDiplomacyPlusParticipant(this.player))
+      return;
+    const resolution = this.mg
+      .internationalResolutionsFor(this.player.id())
+      .find(
+        (candidate) =>
+          candidate.status === "voting" &&
+          !candidate.votes.some((vote) => vote.voterID === this.player!.id()),
+      );
+    if (resolution === undefined) return;
+    const evaluation = evaluateInternationalResolutionVote(
+      this.mg,
+      this.player,
+      resolution,
+    );
+    this.mg.voteInternationalResolution(
+      this.player,
+      resolution.id,
+      evaluation.choice,
+      evaluation.reason,
+    );
   }
 
   private maybeOpenDiplomaticNegotiation(): void {

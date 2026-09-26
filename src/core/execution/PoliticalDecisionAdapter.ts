@@ -65,6 +65,8 @@ export interface PoliticalSnapshot {
   crises: ReturnType<Player["diplomaticCrises"]>;
   proposals: ReturnType<Game["diplomaticProposalsFor"]>;
   incidents: ReturnType<Game["diplomaticIncidentsFor"]>;
+  organizations: ReturnType<Game["internationalOrganizations"]>;
+  resolutions: ReturnType<Game["internationalResolutionsFor"]>;
   agenda: ReturnType<Player["nationalAgenda"]>;
 }
 
@@ -119,6 +121,17 @@ export function buildPoliticalSnapshot(
     incidents: game
       .diplomaticIncidentsFor(player.id())
       .map((incident) => ({ ...incident })),
+    organizations: game.internationalOrganizations().map((organization) => ({
+      ...organization,
+      memberIDs: organization.memberIDs.slice(),
+      principles: organization.principles.slice(),
+    })),
+    resolutions: game
+      .internationalResolutionsFor(player.id())
+      .map((resolution) => ({
+        ...resolution,
+        votes: resolution.votes.map((vote) => ({ ...vote })),
+      })),
     agenda: player.nationalAgenda(),
   };
 }
