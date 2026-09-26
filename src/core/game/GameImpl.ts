@@ -58,6 +58,7 @@ import {
 } from "./Game";
 import { GameMap, TileRef } from "./GameMap";
 import { GameUpdate, GameUpdateType } from "./GameUpdates";
+import { findInteriorRegionTile } from "./HistoricalRegionGeometry";
 import { InternationalOrganizationRegistry } from "./InternationalOrganizationRegistry";
 import { MotionPlanRecord, packMotionPlans } from "./MotionPlans";
 import { PlayerImpl } from "./PlayerImpl";
@@ -99,6 +100,8 @@ export class GameImpl implements Game {
   private regionalSnapshotDone = false;
   private regionalCaptureCursor = 0;
   private regionalFounderToID = new Map<PlayerID, number>();
+  private regionalCenterSumX: number[] = [];
+  private regionalCenterSumY: number[] = [];
   // Diplomacy+ V1.16: cached regional control and strategic-resource output.
   // The immutable RegionID map remains the authority; these caches are updated
   // incrementally on conquest so the economy never rescans the full map per tick.
@@ -574,14 +577,20 @@ export class GameImpl implements Game {
           representativeTile: tile,
           resources: { food: 0, materials: 0, fuel: 0 },
         });
+        this.regionalCenterSumX[regionID - 1] = 0;
+        this.regionalCenterSumY[regionID - 1] = 0;
       }
       this._historicalRegionByTile[tile] = regionID;
-      this._historicalRegions[regionID - 1].tileCount++;
+      const region = this._historicalRegions[regionID - 1];
+      region.tileCount++;
+      this.regionalCenterSumX[regionID - 1] += this._map.x(tile);
+      this.regionalCenterSumY[regionID - 1] += this._map.y(tile);
     }
     this.regionalCaptureCursor = end;
 
     if (this.regionalCaptureCursor >= total) {
       this.regionalSnapshotDone = true;
+      this.centerHistoricalRegionLabels();
       this.initializeRegionalEconomy();
       console.log(
         `[Diplomacy+] Final T=20 regional snapshot complete: ${this._historicalRegions.length} regions`,
@@ -594,10 +603,27 @@ export class GameImpl implements Game {
     if (this.regionalSnapshotDone || this.inSpawnPhase()) return;
     if (this.ticksSinceStart() < WORLD_FORMATION_UNLOCK_TICK) return;
     this.regionalSnapshotDone = true;
+    this.centerHistoricalRegionLabels();
     this.initializeRegionalEconomy();
     console.log(
       `[Diplomacy+] Regional snapshot safety-freeze at ${this.regionalCaptureCursor}/${this._historicalRegionByTile.length}`,
     );
+  }
+
+  private centerHistoricalRegionLabels(): void {
+    for (let index = 0; index < this._historicalRegions.length; index++) {
+      const region = this._historicalRegions[index];
+      if (region.tileCount === 0) continue;
+      region.representativeTile = findInteriorRegionTile(
+        region.id,
+        this.regionalCenterSumX[index] / region.tileCount,
+        this.regionalCenterSumY[index] / region.tileCount,
+        this._width,
+        this._height,
+        this._historicalRegionByTile,
+        region.representativeTile,
+      );
+    }
   }
 
   addUpdate(update: GameUpdate) {

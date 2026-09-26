@@ -220,6 +220,7 @@ Lots suivants : sélection libre des cofondateurs et principes de charte, interf
 ## Règles transversales
 
 - Les mécaniques dépendent du monde généré et des données de la carte, pas de noms de pays imposés.
+- Les régions historiques conservent un centre intérieur calculé depuis leur géométrie ; leurs noms et frontières deviennent progressivement plus lisibles avec le zoom sans encombrer la vue mondiale.
 - Les ressources, paiements et transferts sont vérifiés par le moteur ; l'interface ne suffit pas à faire respecter une règle.
 - Les actions concurrentes doivent être revalidées au moment de leur exécution.
 - La mémoire conserve les événements utiles sans grossir indéfiniment.
