@@ -132,6 +132,7 @@ function diplomaticMemoryPolicy(type: DiplomaticMemoryType): {
     case "trade_started":
     case "trade_completed":
     case "trade_failed":
+    case "trade_offer_refused":
     case "economic_aid":
     case "joint_project":
       return { durationTicks: 1800, severity: 20, aggregates: false };

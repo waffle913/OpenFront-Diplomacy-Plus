@@ -152,6 +152,28 @@ describe("recurring strategic-resource trade", () => {
     duplicate.tick();
     expect(buyer.tradeContracts()).toHaveLength(1);
   });
+
+  it("records an explicit result when a nation refuses a trade offer", () => {
+    const offer = new TradeExecution(
+      buyer,
+      seller.id(),
+      "offer",
+      "buy",
+      "food",
+      10,
+      1,
+      1,
+    );
+    offer.init(game);
+    offer.tick();
+    expect(buyer.tradeContracts()).toHaveLength(0);
+    expect(buyer.diplomaticMemories()).toContainEqual(
+      expect.objectContaining({
+        otherID: seller.id(),
+        type: "trade_offer_refused",
+      }),
+    );
+  });
 });
 
 describe("international cooperation", () => {

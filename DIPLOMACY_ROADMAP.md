@@ -119,7 +119,7 @@ Critère de sortie : chaque pays a des besoins lisibles ; les premières minutes
 
 ### 4. Commerce pour tous — premier grand système économique
 
-**Premier système complet implémenté, vérifié techniquement.** Le joueur peut proposer des importations ou exportations paramétrées (ressource, quantité, prix et nombre de livraisons). Les nations évaluuent les offres selon leurs réserves, leurs besoins, le prix et la confiance. Les contrats récurrents sont visibles et annulables, réservent les engagements lors de l'acceptation, revalident fonds, stocks, partenaire et embargo à chaque livraison, puis conservent leur état final comme historique. Les nations peuvent aussi initier des échanges entre elles. L'équilibrage des prix et fréquences reste à tester en partie.
+**Premier système complet implémenté, vérifié techniquement.** Le joueur peut proposer des importations ou exportations paramétrées (ressource, quantité, prix et nombre de livraisons). Les nations évaluuent les offres selon leurs réserves, leurs besoins, le prix et la confiance. Les contrats récurrents sont visibles et annulables, réservent les engagements lors de l'acceptation, revalident fonds, stocks, partenaire et embargo à chaque livraison, puis conservent leur état final comme historique. Les nations peuvent aussi initier des échanges entre elles. Les acceptations, refus, achèvements et ruptures produisent désormais une notification explicite. L'équilibrage des prix et fréquences reste à tester en partie.
 
 Objectif jouable : permettre au joueur et à chaque nation d'acheter et de vendre.
 
@@ -224,6 +224,7 @@ Lots suivants : sélection libre des cofondateurs et principes de charte, interf
 - Les actions concurrentes doivent être revalidées au moment de leur exécution.
 - La mémoire conserve les événements utiles sans grossir indéfiniment.
 - Les explications diplomatiques doivent correspondre aux causes réellement utilisées dans les décisions.
+- Les demandes diplomatiques et leurs résultats doivent produire une notification dédupliquée sans obliger le joueur à garder un menu ouvert.
 - La stabilité et la lisibilité priment sur l'ajout simultané de nombreuses mécaniques.
 - Sauvegarde/reprise de campagne : besoin à étudier avant les longues parties ; ne pas considérer cette capacité comme déjà acquise.
 

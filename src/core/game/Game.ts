@@ -345,6 +345,7 @@ export type DiplomaticMemoryType =
   | "trade_started"
   | "trade_completed"
   | "trade_failed"
+  | "trade_offer_refused"
   | "economic_aid"
   | "joint_project"
   | "crisis_complied"

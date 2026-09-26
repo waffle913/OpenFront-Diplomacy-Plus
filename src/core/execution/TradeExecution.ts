@@ -134,7 +134,10 @@ export class TradeExecution implements Execution {
       // Human-to-human reply UI is introduced with multiplayer diplomacy.
       // Nations decide from their actual reserve, need, price and relationship.
       if (target.type() !== PlayerType.Nation) return;
-      if (!this.nationAccepts(target, seller, buyer)) return;
+      if (!this.nationAccepts(target, seller, buyer)) {
+        this.actor.rememberDiplomaticEvent(target, "trade_offer_refused", 0, 0);
+        return;
+      }
 
       const contract: TradeContract = {
         id: `${this.mg.ticks()}:${seller.smallID()}:${buyer.smallID()}:${this.resource}:${seller.tradeContracts().length}`,
