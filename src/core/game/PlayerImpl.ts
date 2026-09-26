@@ -708,7 +708,10 @@ export class PlayerImpl implements Player {
         ? this.governmentProfile()
         : undefined,
       politicalFactions: diplomacyPlusEnabled
-        ? this.politicalFactions().map((faction) => ({ ...faction }))
+        ? // The array is replaced, never mutated, when politics updates. Reuse
+          // the stable snapshot between reviews instead of allocating five
+          // objects for every nation on every simulation tick.
+          (this.politicalFactions() as PoliticalFaction[])
         : undefined,
       nationalInterests: diplomacyPlusEnabled
         ? this.nationalInterests()
@@ -2694,10 +2697,7 @@ export class PlayerImpl implements Player {
     );
     const next = current.map((faction) => {
       const target = (targets[faction.type] / targetTotal) * 100;
-      const delta = Math.max(
-        -3,
-        Math.min(3, target - faction.influence),
-      );
+      const delta = Math.max(-3, Math.min(3, target - faction.influence));
       return {
         type: faction.type,
         influence: Math.max(0, faction.influence + delta),
