@@ -140,6 +140,25 @@ export function evaluateDiplomaticProposal(
         impact: incident?.evidence === "confirmed" ? 30 : 10,
         detail: "restitution du navire",
       });
+    } else if (term.kind === "lift_embargo") {
+      if (term.targetID === evaluator.id()) {
+        add({ code: "trade_need", impact: 28, detail: "levée de l’embargo" });
+      } else {
+        add({
+          code: "economic_cost",
+          impact:
+            evaluator.relationScore(proposer) >= 0 ||
+            evaluator.governmentProfile().style === "cooperative"
+              ? -8
+              : -22,
+          detail: "abandon d’un embargo",
+        });
+        add({
+          code: "faction_influence",
+          impact: Math.round((faction("merchants") - 20) * 0.6),
+          detail: "marchands",
+        });
+      }
     } else if (term.kind === "cede_region") {
       const region = game
         .historicalRegions()

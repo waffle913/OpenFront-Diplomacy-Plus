@@ -217,6 +217,39 @@ describe("TradeShipExecution", () => {
 });
 
 describe("TradeShipExecution recapture", () => {
+  test("destroying an active trade ship creates a confirmed incident", async () => {
+    const game = await setup("half_land_half_ocean", {}, [
+      new PlayerInfo("origin", PlayerType.Human, null, "origin"),
+      new PlayerInfo("partner", PlayerType.Human, null, "partner"),
+      new PlayerInfo("attacker", PlayerType.Human, null, "attacker"),
+    ]);
+    const origin = game.player("origin");
+    const partner = game.player("partner");
+    const attacker = game.player("attacker");
+    executeTicks(game, 50);
+    origin.conquer(game.ref(7, 1));
+    partner.conquer(game.ref(7, 8));
+    attacker.conquer(game.ref(1, 1));
+    const srcPort = origin.buildUnit(UnitType.Port, game.ref(7, 1), {});
+    const dstPort = partner.buildUnit(UnitType.Port, game.ref(7, 8), {});
+    const execution = new TradeShipExecution(origin, srcPort, dstPort);
+    game.addExecution(execution);
+    executeTicks(game, 2);
+    const [ship] = origin.units(UnitType.TradeShip);
+
+    ship.delete(true, attacker);
+
+    expect(game.diplomaticIncidentsFor(origin.id())[0]).toMatchObject({
+      type: "trade_ship_destroyed",
+      offenderID: attacker.id(),
+      victimID: origin.id(),
+      damages: 250,
+      evidence: "confirmed",
+      status: "unresolved",
+      restitutionAvailable: false,
+    });
+  });
+
   test("retaking your own trade ship credits no capture", async () => {
     const game = await setup("half_land_half_ocean", {}, [
       new PlayerInfo("origin", PlayerType.Human, null, "origin"),

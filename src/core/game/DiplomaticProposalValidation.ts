@@ -191,6 +191,21 @@ export function validateDiplomaticTerms(
           reasons.push({ code: "restitution_unavailable", impact: -100 });
         }
       }
+    } else if (term.kind === "lift_embargo") {
+      const parties = new Set([proposer.id(), recipient.id()]);
+      if (
+        !parties.has(term.embargoerID) ||
+        !parties.has(term.targetID) ||
+        term.embargoerID === term.targetID
+      ) {
+        reasons.push({ code: "invalid_participant", impact: -100 });
+      } else if (
+        !game
+          .player(term.embargoerID)
+          .hasEmbargoAgainst(game.player(term.targetID))
+      ) {
+        reasons.push({ code: "embargo_not_active", impact: -100 });
+      }
     } else if (term.kind === "cede_region") {
       const parties = new Set([proposer.id(), recipient.id()]);
       if (

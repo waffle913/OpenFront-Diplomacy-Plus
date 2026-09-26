@@ -983,6 +983,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
       country_elimination_risk: "Élimination totale interdite",
       last_viable_territory: "Dernier territoire viable protégé",
       strategic_region: "Intérêt régional stratégique",
+      embargo_not_active: "Aucun embargo actif",
     };
     return labels[code] ?? code.replace(/_/g, " ");
   }
@@ -996,6 +997,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
     if (term.kind === "formal_apology") return "Excuses officielles";
     if (term.kind === "return_trade_ship")
       return "Restitution du navire commercial";
+    if (term.kind === "lift_embargo") return "Levée de l’embargo";
     const region = this.game
       .historicalRegions()
       .find((candidate) => candidate.id === term.regionID);
@@ -1559,6 +1561,21 @@ export class DiplomacyPanel extends LitElement implements Controller {
           🚫
           ${my.hasEmbargo(selected) ? "Lever l'embargo" : "Imposer un embargo"}
         </button>
+        ${selected.hasEmbargo(my)
+          ? html`<button
+              class="eu4-action border-emerald-700/50 bg-emerald-950/50"
+              @click=${() =>
+                this.sendProposal(selected, [
+                  {
+                    kind: "lift_embargo",
+                    embargoerID: selected.id(),
+                    targetID: my.id(),
+                  },
+                ])}
+            >
+              📜 Demander la levée de leur embargo
+            </button>`
+          : nothing}
         <button
           class="eu4-action border-orange-600/50 bg-orange-950/60"
           @click=${() => this.emitDiplomacy(selected, "ultimatum")}

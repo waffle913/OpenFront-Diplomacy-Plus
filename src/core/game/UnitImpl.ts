@@ -228,30 +228,31 @@ export class UnitImpl implements Unit {
     return this.mg.unitInfo(this._type);
   }
 
-  setOwner(newOwner: PlayerImpl): void {
+  setOwner(newOwner: PlayerImpl, recordAsCapture = true): void {
     this.clearPendingDeletion();
-    switch (this._type) {
-      case UnitType.Warship:
-      case UnitType.Port:
-      case UnitType.MissileSilo:
-      case UnitType.DefensePost:
-      case UnitType.SAMLauncher:
-      case UnitType.City:
-      case UnitType.Factory:
-        this.mg.stats().unitCapture(newOwner, this._type);
-        this.mg.stats().unitLose(this._owner, this._type);
-        break;
-      // Only a disconnected teammate's fleet reaches this case (see
-      // GameImpl.conquerPlayer), so it is a transfer inside a team, not a
-      // loss: the previous owner is credited nothing, not BOAT_INDEX_LOST.
-      //
-      // Trade ships are deliberately absent: TradeShipExecution records the
-      // capture when the ship reaches the captor's port, so counting it here
-      // would double every act of piracy.
-      case UnitType.TransportShip:
-        this.mg.stats().boatCapturedTroops(newOwner, this._owner);
-        break;
-    }
+    if (recordAsCapture)
+      switch (this._type) {
+        case UnitType.Warship:
+        case UnitType.Port:
+        case UnitType.MissileSilo:
+        case UnitType.DefensePost:
+        case UnitType.SAMLauncher:
+        case UnitType.City:
+        case UnitType.Factory:
+          this.mg.stats().unitCapture(newOwner, this._type);
+          this.mg.stats().unitLose(this._owner, this._type);
+          break;
+        // Only a disconnected teammate's fleet reaches this case (see
+        // GameImpl.conquerPlayer), so it is a transfer inside a team, not a
+        // loss: the previous owner is credited nothing, not BOAT_INDEX_LOST.
+        //
+        // Trade ships are deliberately absent: TradeShipExecution records the
+        // capture when the ship reaches the captor's port, so counting it here
+        // would double every act of piracy.
+        case UnitType.TransportShip:
+          this.mg.stats().boatCapturedTroops(newOwner, this._owner);
+          break;
+      }
     this._lastOwner = this._owner;
     this._lastOwner._units = this._lastOwner._units.filter((u) => u !== this);
     this._lastOwner._myUnitsVersion++;
@@ -363,6 +364,14 @@ export class UnitImpl implements Unit {
           break;
         case UnitType.TradeShip:
           this.mg.stats().boatDestroyTrade(destroyer, this._owner);
+          if (destroyer !== this._owner) {
+            this.mg.recordDiplomaticIncident(
+              "trade_ship_destroyed",
+              destroyer,
+              this._owner,
+              250,
+            );
+          }
           break;
         case UnitType.City:
         case UnitType.DefensePost:

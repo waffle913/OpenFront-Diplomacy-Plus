@@ -117,6 +117,25 @@ describe("DiplomacyRegistry lifecycle", () => {
     expect(withdrawn.status).toBe("withdrawn");
   });
 
+  it("negotiates an embargo lift through atomic settlement", () => {
+    recipient.addEmbargo(proposer, false);
+    const proposal = game.createDiplomaticProposal(proposer, recipient, [
+      {
+        kind: "lift_embargo",
+        embargoerID: recipient.id(),
+        targetID: proposer.id(),
+      },
+      { kind: "non_aggression_pact", durationTicks: 1200 },
+    ]).proposal!;
+    expect(game.acceptDiplomaticProposal(recipient, proposal.id).accepted).toBe(
+      true,
+    );
+    game.executeNextTick();
+    expect(proposal.status).toBe("settled");
+    expect(recipient.hasEmbargoAgainst(proposer)).toBe(false);
+    expect(recipient.nonAggressionPactWith(proposer)).not.toBeNull();
+  });
+
   it("creates immutable counter-proposal revisions", () => {
     const original = game.createDiplomaticProposal(proposer, recipient, [
       { kind: "non_aggression_pact", durationTicks: 3600 },

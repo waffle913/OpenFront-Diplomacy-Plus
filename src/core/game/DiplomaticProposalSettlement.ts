@@ -43,6 +43,8 @@ export function settleDiplomaticProposal(
       const ship = game.unit(incident.sourceUnitID!)!;
       game.player(incident.victimID).captureUnit(ship);
       game.settleDiplomaticIncident(term.incidentID, 0);
+    } else if (term.kind === "lift_embargo") {
+      game.player(term.embargoerID).stopEmbargo(game.player(term.targetID));
     } else if (term.kind === "cede_region") {
       const cedent = game.player(term.cedentID);
       const receiver = game.player(term.recipientID);
@@ -57,7 +59,8 @@ export function settleDiplomaticProposal(
       const tiles = [...cedent.tiles()].filter(
         (tile) => game.historicalRegionAt(tile)?.id === term.regionID,
       );
-      for (const structure of structures) receiver.captureUnit(structure);
+      // A treaty changes sovereignty without crediting a combat capture.
+      for (const structure of structures) structure.setOwner(receiver, false);
       for (const tile of tiles) receiver.conquer(tile);
       cedent.clearWarGoalRegionAgainst(receiver);
       receiver.clearWarGoalRegionAgainst(cedent);

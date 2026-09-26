@@ -510,6 +510,7 @@ export type DiplomaticReasonCode =
   | "country_elimination_risk"
   | "last_viable_territory"
   | "strategic_region"
+  | "embargo_not_active"
   | "incident_missing"
   | "incident_resolved"
   | "not_incident_victim"
@@ -539,6 +540,11 @@ export type DiplomaticTerm =
       incidentID: string;
     }
   | { kind: "return_trade_ship"; incidentID: string }
+  | {
+      kind: "lift_embargo";
+      embargoerID: PlayerID;
+      targetID: PlayerID;
+    }
   | {
       kind: "cede_region";
       cedentID: PlayerID;
@@ -868,7 +874,7 @@ export interface Unit {
   lastTile(): TileRef;
   move(tile: TileRef): void;
   isActive(): boolean;
-  setOwner(owner: Player): void;
+  setOwner(owner: Player, recordAsCapture?: boolean): void;
   touch(): void;
   hash(): number;
   toUpdate(): UnitUpdate;

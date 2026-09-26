@@ -115,6 +115,7 @@ const SAMPLE_INTENTS: StampedIntent[] = [
         incidentID: "di:1",
       },
       { kind: "return_trade_ship", incidentID: "di:1" },
+      { kind: "lift_embargo", embargoerID: P2, targetID: P1 },
       {
         kind: "cede_region",
         cedentID: P2,

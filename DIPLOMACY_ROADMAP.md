@@ -151,11 +151,11 @@ Critère de sortie : plusieurs pays peuvent poursuivre un intérêt commun sans 
 
 ### 6. Tensions et crises
 
-**Chaîne du premier incident implémentée, vérifiée techniquement.** Les ultimatums ouvrent une crise partagée avec réponse différée et échéance. La saisie d'un navire commercial crée un incident persistant et confirmé, visible dans Diplomatie. Protestation, abandon, restitution, excuses, réparation, refus, contre-proposition, médiation, sanctions et ultimatum passent par les règles communes. Le refus final peut accorder un casus belli sans déclencher automatiquement une guerre. Une trêve interdit l'ouverture d'une crise et neutralise aussi les armes spéciales visant le signataire.
+**Chaîne des incidents maritimes implémentée, vérifiée techniquement.** Les ultimatums ouvrent une crise partagée avec réponse différée et échéance. La saisie ou la destruction d'un navire commercial crée un incident persistant et confirmé, visible dans Diplomatie. Protestation, abandon, restitution, excuses, réparation, refus, contre-proposition, médiation, sanctions et ultimatum passent par les règles communes. Le refus final peut accorder un casus belli sans déclencher automatiquement une guerre. Une trêve interdit l'ouverture d'une crise et neutralise aussi les armes spéciales visant le signataire.
 
 Objectif jouable : permettre une escalade diplomatique avant la guerre, et une issue pacifique.
 
-Lots restants : brancher la destruction d'un navire et d'autres violations sur le même registre, puis équilibrer les seuils et délais après essais en partie.
+Lots restants : brancher les violations territoriales et de traité sur le même registre, puis équilibrer les seuils et délais après essais en partie.
 
 À tester : motifs valides, délais respectés, conséquences commerciales réelles, refus et acceptation traités une seule fois. Une crise ne contourne pas une trêve.
 
@@ -163,7 +163,7 @@ Critère de sortie : une même crise peut se résoudre par accord, rester bloqu�
 
 ### 7. Logistique militaire et paix négociée
 
-**Paix régionale V1 implémentée, vérifiée techniquement.** Une offensive consomme un ravitaillement initial plafonné ; les armées, offensives et navires entretiennent une consommation continue. Les pénuries alimentaires touchent les troupes et le manque de carburant use les offensives. Les structures exigent des matériaux. Paix blanche, réparations et cession d'une région historique peuvent être réunies dans une proposition atomique. Le transfert déplace les structures de la région, respecte les contrôles tiers et efface l'objectif de guerre régional correspondant. La V1 protège le noyau fondateur, l'élimination totale et le dernier territoire viable ; ces protections restent des règles de cette version, pas des invariants définitifs du moteur.
+**Paix régionale V1 implémentée, vérifiée techniquement.** Une offensive consomme un ravitaillement initial plafonné ; les armées, offensives et navires entretiennent une consommation continue. Les pénuries alimentaires touchent les troupes et le manque de carburant use les offensives. Les structures exigent des matériaux. Paix blanche, réparations, levée d'embargo et cession d'une région historique peuvent être réunies dans une proposition atomique. Le transfert déplace les structures sans les compter comme prises de guerre, respecte les contrôles tiers et efface l'objectif de guerre régional correspondant. La V1 protège le noyau fondateur, l'élimination totale et le dernier territoire viable ; ces protections restent des règles de cette version, pas des invariants définitifs du moteur.
 
 Objectif jouable : rendre la guerre dépendante de l'économie et donner du contenu aux traités de paix.
 

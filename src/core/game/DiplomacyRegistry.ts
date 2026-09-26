@@ -48,6 +48,8 @@ function termSignature(terms: readonly DiplomaticTerm[]): string {
         return `apology:${term.offenderID}:${term.victimID}:${term.incidentID}`;
       if (term.kind === "return_trade_ship")
         return `restitution:${term.incidentID}`;
+      if (term.kind === "lift_embargo")
+        return `lift-embargo:${term.embargoerID}:${term.targetID}`;
       return `cede:${term.cedentID}:${term.recipientID}:${term.regionID}`;
     })
     .sort()

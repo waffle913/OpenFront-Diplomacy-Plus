@@ -732,6 +732,11 @@ export const DiplomaticTermSchema = z.union([
     incidentID: z.string().max(128),
   }),
   z.object({
+    kind: z.literal("lift_embargo"),
+    embargoerID: MappedID,
+    targetID: MappedID,
+  }),
+  z.object({
     kind: z.literal("cede_region"),
     cedentID: MappedID,
     recipientID: MappedID,
