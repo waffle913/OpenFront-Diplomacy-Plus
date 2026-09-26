@@ -14,7 +14,10 @@ import { TileRef } from "../../game/GameMap";
 import { Cluster } from "../../game/TrainStation";
 import { PseudoRandom } from "../../PseudoRandom";
 import { assertNever } from "../../Util";
-import { ConstructionExecution } from "../ConstructionExecution";
+import {
+  ConstructionExecution,
+  constructionMaterialsCost,
+} from "../ConstructionExecution";
 import { UpgradeStructureExecution } from "../UpgradeStructureExecution";
 import { nearestTileDist, nearestTileDistCapped } from "../Util";
 import { randTerritoryTileArray } from "./NationUtils";
@@ -220,7 +223,12 @@ export class NationStructureBehavior {
       return false;
 
     const cost = this.cost(UnitType.DefensePost);
-    if (player.gold() < cost) return false;
+    if (
+      player.gold() < cost ||
+      player.resources().materials <
+        constructionMaterialsCost(UnitType.DefensePost)
+    )
+      return false;
 
     const tiles = this.sampleTilesNearFront(
       frontTiles,
@@ -629,6 +637,13 @@ export class NationStructureBehavior {
       }
       // No structures of this type exist yet — fall through to build the first one
       // (even if density is high - the nation is probably on a tiny island and we need to use all building spots we can find)
+    }
+
+    // ConstructionExecution revalidates and charges the stock. Checking here
+    // prevents the AI from queuing doomed builds every few ticks and from
+    // counting those failed attempts as real placements.
+    if (this.player.resources().materials < constructionMaterialsCost(type)) {
+      return false;
     }
 
     const tile = this.structureSpawnTile(type);

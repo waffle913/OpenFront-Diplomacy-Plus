@@ -5,6 +5,7 @@ import {
   DiplomaticIncident,
   DiplomaticProposal,
   DiplomaticTerm,
+  InternationalCharterPrinciple,
   InternationalResolutionKind,
   isDiplomacyPlusParticipant,
   NationalConcernType,
@@ -96,6 +97,13 @@ export class DiplomacyPanel extends LitElement implements Controller {
   @state() private tradePrice = 250;
   @state() private tradeDeliveries = 3;
   @state() private requestedRegionID: number | null = null;
+  @state() private internationalOrganizationName = "Conseil international";
+  @state() private internationalFounderIDs = new Set<string>();
+  @state() private internationalPrinciples =
+    new Set<InternationalCharterPrinciple>([
+      "protect_trade",
+      "mediate_disputes",
+    ]);
 
   createRenderRoot() {
     return this;
@@ -386,7 +394,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
   }
 
   private sendInternational(
-    action: "create" | "join" | "propose" | "vote",
+    action: "create" | "join" | "propose" | "vote" | "comply" | "defy",
     data: ConstructorParameters<
       typeof SendInternationalOrganizationIntentEvent
     >[1],
@@ -394,6 +402,23 @@ export class DiplomacyPanel extends LitElement implements Controller {
     this.eventBus.emit(
       new SendInternationalOrganizationIntentEvent(action, data),
     );
+  }
+
+  private toggleInternationalFounder(playerID: string, checked: boolean) {
+    const next = new Set(this.internationalFounderIDs);
+    if (checked) next.add(playerID);
+    else next.delete(playerID);
+    this.internationalFounderIDs = next;
+  }
+
+  private toggleInternationalPrinciple(
+    principle: InternationalCharterPrinciple,
+    checked: boolean,
+  ) {
+    const next = new Set(this.internationalPrinciples);
+    if (checked) next.add(principle);
+    else next.delete(principle);
+    this.internationalPrinciples = next;
   }
 
   private renderInternational(my: PlayerView, selected: PlayerView) {
@@ -408,12 +433,26 @@ export class DiplomacyPanel extends LitElement implements Controller {
           isDiplomacyPlusParticipant(player),
       )
       .sort((a, b) => a.id().localeCompare(b.id()));
-    const selectedFounder =
-      selected !== my && possibleFounders.includes(selected) ? selected : null;
-    const cofounders = [
-      ...(selectedFounder ? [selectedFounder] : []),
-      ...possibleFounders.filter((player) => player !== selectedFounder),
-    ].slice(0, 2);
+    const selectedFounders = possibleFounders.filter((player) =>
+      this.internationalFounderIDs.has(player.id()),
+    );
+    const charterPrinciples: [InternationalCharterPrinciple, string][] = [
+      ["protect_trade", "Protection du commerce"],
+      ["mediate_disputes", "Médiation des différends"],
+      ["oppose_unjustified_wars", "Opposition aux guerres injustifiées"],
+      ["collective_sanctions", "Sanctions collectives"],
+    ];
+    const principleLabel = (principle: InternationalCharterPrinciple) =>
+      charterPrinciples.find(([id]) => id === principle)?.[1] ?? principle;
+    const reparationsIncident = my
+      .diplomaticIncidents()
+      .filter(
+        (incident) =>
+          incident.offenderID === selected.id() &&
+          incident.victimID === my.id() &&
+          !["settled", "dismissed"].includes(incident.status),
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
 
     return html`<div class="mb-4 border-b border-amber-500/25 pb-3">
         <div class="eu4-title">Coopération internationale</div>
@@ -426,28 +465,80 @@ export class DiplomacyPanel extends LitElement implements Controller {
       ${organizations.length === 0
         ? html`<div class="eu4-card mb-3">
             <div class="eu4-title mb-2">Fonder une organisation</div>
-            <p class="mb-3 text-xs text-slate-300">
-              Coalition proposée avec
-              ${cofounders.length
-                ? cofounders.map((player) => player.displayName()).join(" et ")
-                : "deux autres nations"}.
-            </p>
+            <label class="mb-3 block text-xs text-slate-300">
+              Nom
+              <input
+                class="mt-1 w-full rounded border border-white/10 bg-black/30 px-3 py-2 outline-none focus:border-amber-500"
+                maxlength="64"
+                .value=${this.internationalOrganizationName}
+                @input=${(event: Event) => {
+                  this.internationalOrganizationName = (
+                    event.target as HTMLInputElement
+                  ).value;
+                }}
+              />
+            </label>
+            <div class="mb-3">
+              <div class="mb-1 text-xs font-bold text-slate-200">
+                Pays cofondateurs · au moins 2
+              </div>
+              <div class="grid max-h-36 grid-cols-2 gap-1 overflow-y-auto">
+                ${possibleFounders.map(
+                  (player) =>
+                    html`<label
+                      class="flex cursor-pointer items-center gap-2 rounded bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
+                    >
+                      <input
+                        type="checkbox"
+                        .checked=${this.internationalFounderIDs.has(
+                          player.id(),
+                        )}
+                        @change=${(event: Event) =>
+                          this.toggleInternationalFounder(
+                            player.id(),
+                            (event.target as HTMLInputElement).checked,
+                          )}
+                      />
+                      <span class="truncate">${player.displayName()}</span>
+                    </label>`,
+                )}
+              </div>
+            </div>
+            <div class="mb-3">
+              <div class="mb-1 text-xs font-bold text-slate-200">
+                Principes de la charte
+              </div>
+              ${charterPrinciples.map(
+                ([principle, label]) =>
+                  html`<label
+                    class="mr-3 inline-flex cursor-pointer items-center gap-2 py-1 text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      .checked=${this.internationalPrinciples.has(principle)}
+                      @change=${(event: Event) =>
+                        this.toggleInternationalPrinciple(
+                          principle,
+                          (event.target as HTMLInputElement).checked,
+                        )}
+                    />
+                    ${label}
+                  </label>`,
+              )}
+            </div>
             <button
               class="eu4-action"
-              ?disabled=${cofounders.length < 2}
+              ?disabled=${selectedFounders.length < 2 ||
+              this.internationalPrinciples.size === 0 ||
+              this.internationalOrganizationName.trim().length < 3}
               @click=${() =>
                 this.sendInternational("create", {
-                  name: "Conseil international",
-                  memberIDs: cofounders.map((player) => player.id()),
-                  principles: [
-                    "protect_trade",
-                    "mediate_disputes",
-                    "oppose_unjustified_wars",
-                    "collective_sanctions",
-                  ],
+                  name: this.internationalOrganizationName,
+                  memberIDs: selectedFounders.map((player) => player.id()),
+                  principles: [...this.internationalPrinciples],
                 })}
             >
-              🌐 Fonder le Conseil international
+              🌐 Fonder l’organisation
             </button>
           </div>`
         : nothing}
@@ -464,7 +555,8 @@ export class DiplomacyPanel extends LitElement implements Controller {
                     .join(" • ")}
                 </div>
                 <div class="mt-2 text-[11px] text-slate-400">
-                  Charte : ${organization.principles.join(", ")}
+                  Charte :
+                  ${organization.principles.map(principleLabel).join(" · ")}
                 </div>
               </div>
               ${!isMember
@@ -500,6 +592,28 @@ export class DiplomacyPanel extends LitElement implements Controller {
                         ${label} ${selected.displayName()}
                       </button>`,
                   )}
+                  ${reparationsIncident
+                    ? html`<button
+                        class="eu4-action"
+                        title="Saisir l'organisation au sujet de l'incident"
+                        @click=${() =>
+                          this.sendInternational("propose", {
+                            organizationID: organization.id,
+                            resolutionKind: "demand_reparations",
+                            targetID: selected.id(),
+                            beneficiaryID: my.id(),
+                            incidentID: reparationsIncident.id,
+                            amount: Math.max(1, reparationsIncident.damages),
+                          })}
+                      >
+                        Exiger
+                        ${Math.max(
+                          1,
+                          reparationsIncident.damages,
+                        ).toLocaleString()}
+                        or de réparations
+                      </button>`
+                    : nothing}
                 </div>`
               : nothing}
           </section>`;
@@ -512,6 +626,19 @@ export class DiplomacyPanel extends LitElement implements Controller {
             const hasVoted = resolution.votes.some(
               (vote) => vote.voterID === my.id(),
             );
+            const votesFor = resolution.votes.filter(
+              (vote) => vote.choice === "for",
+            ).length;
+            const votesAgainst = resolution.votes.filter(
+              (vote) => vote.choice === "against",
+            ).length;
+            const abstentions = resolution.votes.filter(
+              (vote) => vote.choice === "abstain",
+            ).length;
+            const awaitingMyResponse =
+              resolution.status === "passed" &&
+              resolution.targetID === my.id() &&
+              resolution.targetResponse === "pending";
             return html`<div class="eu4-card mb-2">
               <div class="flex justify-between gap-3">
                 <b class="text-sm"
@@ -524,9 +651,20 @@ export class DiplomacyPanel extends LitElement implements Controller {
                 >
               </div>
               <div class="mt-1 text-xs text-slate-300">
-                Cible : ${this.playerName(resolution.targetID)} ·
-                ${resolution.votes.length} vote(s)
+                Cible : ${this.playerName(resolution.targetID)} · ${votesFor}
+                pour · ${votesAgainst} contre · ${abstentions} abstention(s)
               </div>
+              ${resolution.votes.length
+                ? html`<div class="mt-2 space-y-1 text-[11px] text-slate-400">
+                    ${resolution.votes.map(
+                      (vote) =>
+                        html`<div>
+                          ${this.playerName(vote.voterID)} :
+                          <b>${vote.choice}</b> · ${vote.reason}
+                        </div>`,
+                    )}
+                  </div>`
+                : nothing}
               ${resolution.status === "voting" && !hasVoted
                 ? html`<div class="mt-3 flex gap-2">
                     ${(
@@ -551,6 +689,58 @@ export class DiplomacyPanel extends LitElement implements Controller {
                     )}
                   </div>`
                 : nothing}
+              ${awaitingMyResponse
+                ? html`<div
+                    class="mt-3 rounded border border-amber-500/30 bg-amber-950/25 p-2"
+                  >
+                    <div class="mb-2 text-xs text-amber-100">
+                      Réponse attendue
+                      ${resolution.targetResponseDeadline !== undefined
+                        ? this.deadline(resolution.targetResponseDeadline)
+                        : ""}
+                    </div>
+                    <div class="flex gap-2">
+                      <button
+                        class="eu4-action"
+                        @click=${() =>
+                          this.sendInternational("comply", {
+                            resolutionID: resolution.id,
+                            reason: "Le gouvernement respecte la résolution",
+                          })}
+                      >
+                        ✓ Respecter
+                      </button>
+                      <button
+                        class="eu4-action border-red-500/40"
+                        @click=${() =>
+                          this.sendInternational("defy", {
+                            resolutionID: resolution.id,
+                            reason: "Le gouvernement invoque sa souveraineté",
+                          })}
+                      >
+                        ✕ Ignorer
+                      </button>
+                    </div>
+                  </div>`
+                : resolution.targetResponse
+                  ? html`<div class="mt-2 text-xs text-slate-400">
+                      Réponse de la cible :
+                      <b
+                        class=${resolution.targetResponse === "complied"
+                          ? "text-emerald-300"
+                          : resolution.targetResponse === "defied"
+                            ? "text-red-300"
+                            : "text-amber-300"}
+                        >${resolution.targetResponse === "complied"
+                          ? "résolution respectée"
+                          : resolution.targetResponse === "defied"
+                            ? "résolution ignorée"
+                            : "en attente"}</b
+                      >${resolution.targetResponseReason
+                        ? ` · ${resolution.targetResponseReason}`
+                        : ""}
+                    </div>`
+                  : nothing}
             </div>`;
           })}`;
   }
@@ -558,6 +748,11 @@ export class DiplomacyPanel extends LitElement implements Controller {
   private renderCountry(player: PlayerView) {
     const interests = player.nationalInterests();
     const agenda = player.nationalAgenda();
+    const recentDecisions = player
+      .diplomaticMemories()
+      .slice()
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 6);
     const regions = this.game
       .historicalRegions()
       .map((region) => ({
@@ -723,6 +918,30 @@ export class DiplomacyPanel extends LitElement implements Controller {
             </div>
           </div>
         </div>
+      </div>
+      <div class="eu4-card mt-3">
+        <div class="eu4-title mb-2">Décisions et événements récents</div>
+        ${recentDecisions.length
+          ? recentDecisions.map(
+              (memory) =>
+                html`<div class="eu4-row text-xs">
+                  <span
+                    >${this.diplomaticMemoryLabel(memory.type)} ·
+                    ${this.playerName(memory.otherID)}</span
+                  ><span class="text-slate-400"
+                    >${formatWorldDate(
+                      Math.max(
+                        0,
+                        this.game.ticksSinceStart() -
+                          (this.game.ticks() - memory.createdAt),
+                      ),
+                    )}</span
+                  >
+                </div>`,
+            )
+          : html`<div class="text-sm text-slate-500">
+              Aucune décision diplomatique récente.
+            </div>`}
       </div>
       <div class="eu4-card mt-3">
         <div class="eu4-title mb-2">Régions contrôlées</div>
@@ -1017,7 +1236,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
             ? memories.map(
                 (memory) =>
                   html`<div class="eu4-row text-xs">
-                    <span>${memory.type.replace(/_/g, " ")}</span
+                    <span>${this.diplomaticMemoryLabel(memory.type)}</span
                     ><span
                       >${formatWorldDate(
                         Math.max(
@@ -1162,6 +1381,44 @@ export class DiplomacyPanel extends LitElement implements Controller {
       embargo_not_active: "Aucun embargo actif",
     };
     return labels[code] ?? code.replace(/_/g, " ");
+  }
+
+  private diplomaticMemoryLabel(
+    type: ReturnType<PlayerView["diplomaticMemories"]>[number]["type"],
+  ): string {
+    const labels: Partial<Record<typeof type, string>> = {
+      nap_signed: "Pacte de non-agression signé",
+      nap_broken: "Pacte de non-agression rompu",
+      guarantee_given: "Garantie d’indépendance accordée",
+      guarantee_withdrawn: "Garantie retirée",
+      war_started: "Entrée en guerre",
+      peace_signed: "Paix conclue",
+      trade_started: "Commerce ouvert",
+      trade_completed: "Contrat commercial achevé",
+      trade_failed: "Contrat commercial rompu",
+      trade_offer_refused: "Offre commerciale refusée",
+      economic_aid: "Aide économique envoyée",
+      joint_project: "Projet commun engagé",
+      crisis_complied: "Ultimatum respecté",
+      crisis_refused: "Ultimatum refusé",
+      trade_ship_seized: "Navire commercial saisi",
+      trade_ship_destroyed: "Navire commercial détruit",
+      reparations_requested: "Réparations demandées",
+      reparations_paid: "Réparations payées",
+      reparations_refused: "Réparations refusées",
+      mediation_accepted: "Médiation acceptée",
+      mediation_refused: "Médiation refusée",
+      territory_lost: "Territoire perdu",
+      territory_returned: "Territoire restitué",
+      truce_broken: "Trêve violée",
+      unjustified_war: "Guerre injustifiée",
+      international_condemnation: "Condamnation internationale",
+      sanctions_imposed: "Sanctions imposées",
+      resolution_ignored: "Résolution internationale ignorée",
+      apology_offered: "Excuses officielles présentées",
+      apology_accepted: "Excuses officielles acceptées",
+    };
+    return labels[type] ?? type.replace(/_/g, " ");
   }
 
   private termLabel(term: DiplomaticTerm): string {
@@ -1419,6 +1676,9 @@ export class DiplomacyPanel extends LitElement implements Controller {
                         ? html`<button
                             class="rounded bg-red-900 px-2 py-1 text-xs"
                             ?disabled=${incident.damages < 1}
+                            title=${incident.damages < 1
+                              ? "Aucun dommage financier établi"
+                              : "Demander une compensation correspondant aux dommages"}
                             @click=${() =>
                               this.sendProposal(
                                 this.game.player(incident.offenderID),

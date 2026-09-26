@@ -81,5 +81,27 @@ describe("diplomacy notifications", () => {
     expect((notification as any).notices.at(-1)).toMatchObject({
       title: "Refus transmis",
     });
+
+    resolutions.push({
+      id: "ir:1",
+      organizationID: "io:1",
+      proposerID: "me",
+      kind: "condemn",
+      targetID: "other",
+      createdAt: 100,
+      closesAt: 700,
+      status: "voting",
+      votes: [],
+    });
+    notification.tick();
+    resolutions[0].status = "passed";
+    resolutions[0].targetResponse = "pending";
+    notification.tick();
+    resolutions[0].targetResponse = "defied";
+    notification.tick();
+    expect((notification as any).notices.at(-1)).toMatchObject({
+      title: "Résolution ignorée",
+      body: expect.stringContaining("Espagne"),
+    });
   });
 });

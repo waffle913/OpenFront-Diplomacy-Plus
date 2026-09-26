@@ -16,7 +16,10 @@ import {
   UnitType,
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
-import { evaluateInternationalResolutionVote } from "../game/InternationalOrganizationRegistry";
+import {
+  evaluateInternationalResolutionResponse,
+  evaluateInternationalResolutionVote,
+} from "../game/InternationalOrganizationRegistry";
 import { PseudoRandom } from "../PseudoRandom";
 import { GameID } from "../Schemas";
 import { assertNever, simpleHash } from "../Util";
@@ -334,16 +337,38 @@ export class NationExecution implements Execution {
             ?.memberIDs.includes(this.player!.id()) === true &&
           !candidate.votes.some((vote) => vote.voterID === this.player!.id()),
       );
-    if (resolution === undefined) return;
-    const evaluation = evaluateInternationalResolutionVote(
+    if (resolution !== undefined) {
+      const evaluation = evaluateInternationalResolutionVote(
+        this.mg,
+        this.player,
+        resolution,
+      );
+      this.mg.voteInternationalResolution(
+        this.player,
+        resolution.id,
+        evaluation.choice,
+        evaluation.reason,
+      );
+      return;
+    }
+    const response = this.mg
+      .internationalResolutionsFor(this.player.id())
+      .find(
+        (candidate) =>
+          candidate.status === "passed" &&
+          candidate.targetID === this.player!.id() &&
+          candidate.targetResponse === "pending",
+      );
+    if (response === undefined) return;
+    const evaluation = evaluateInternationalResolutionResponse(
       this.mg,
       this.player,
-      resolution,
+      response,
     );
-    this.mg.voteInternationalResolution(
+    this.mg.respondInternationalResolution(
       this.player,
-      resolution.id,
-      evaluation.choice,
+      response.id,
+      evaluation.comply,
       evaluation.reason,
     );
   }

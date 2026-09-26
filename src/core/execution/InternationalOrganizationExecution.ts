@@ -13,7 +13,9 @@ export type InternationalOrganizationAction =
   | "create"
   | "join"
   | "propose"
-  | "vote";
+  | "vote"
+  | "comply"
+  | "defy";
 
 export interface InternationalOrganizationIntentData {
   name?: string;
@@ -88,12 +90,29 @@ export class InternationalOrganizationExecution implements Execution {
             amount: this.data.amount,
           },
         );
-      } else if (this.data.resolutionID && this.data.vote) {
+      } else if (
+        this.action === "vote" &&
+        this.data.resolutionID &&
+        this.data.vote
+      ) {
         this.game.voteInternationalResolution(
           this.actor,
           this.data.resolutionID,
           this.data.vote,
           this.data.reason ?? "Vote du gouvernement",
+        );
+      } else if (
+        (this.action === "comply" || this.action === "defy") &&
+        this.data.resolutionID
+      ) {
+        this.game.respondInternationalResolution(
+          this.actor,
+          this.data.resolutionID,
+          this.action === "comply",
+          this.data.reason ??
+            (this.action === "comply"
+              ? "Résolution reconnue"
+              : "Primauté de la souveraineté nationale"),
         );
       }
     } finally {

@@ -350,6 +350,7 @@ describe("NationStructureBehavior.tryBuildDefensePost", () => {
       troops: () => troops,
       incomingAttacks: () => attacks,
       gold: () => 1_000_000n,
+      resources: () => ({ food: 100, materials: 100, fuel: 100 }),
       units: () => [],
     };
   }
@@ -495,6 +496,25 @@ describe("NationStructureBehavior.tryBuildDefensePost", () => {
     vi.spyOn(behavior as any, "getAttackFrontTiles").mockReturnValue([1]);
     vi.spyOn(behavior as any, "countDefensePostsNearFront").mockReturnValue(0);
     expect((behavior as any).tryBuildDefensePost()).toBe(false);
+  });
+
+  it("does not queue a defense post without construction materials", () => {
+    const addExecution = vi.fn();
+    const game = {
+      ...makeMinimalGame(Difficulty.Hard),
+      addExecution,
+    };
+    const player = {
+      ...makeMinimalPlayer(1000, [makeLandAttack(1000)]),
+      resources: () => ({ food: 100, materials: 14, fuel: 100 }),
+    };
+    const behavior = makeBehavior(game, player);
+    (behavior as any).placementsCount = 1;
+    vi.spyOn(behavior as any, "getAttackFrontTiles").mockReturnValue([1]);
+    vi.spyOn(behavior as any, "countDefensePostsNearFront").mockReturnValue(0);
+
+    expect((behavior as any).tryBuildDefensePost()).toBe(false);
+    expect(addExecution).not.toHaveBeenCalled();
   });
 
   it("returns false when no sampled tile passes canBuild", () => {

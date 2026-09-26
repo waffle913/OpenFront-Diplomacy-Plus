@@ -236,6 +236,22 @@ describe("Transport send paths", () => {
           reason: "Intérêt national",
         },
       });
+
+      eventBus.emit(
+        new SendInternationalOrganizationIntentEvent("comply", {
+          resolutionID: "ir:1",
+          reason: "Résolution reconnue",
+        }),
+      );
+      expect(decodeFrames(ws)).toContainEqual({
+        type: "intent",
+        intent: {
+          type: "international_organization",
+          action: "comply",
+          resolutionID: "ir:1",
+          reason: "Résolution reconnue",
+        },
+      });
     });
 
     it("does nothing when an intent arrives before any socket exists", () => {

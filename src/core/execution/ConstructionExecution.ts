@@ -10,6 +10,23 @@ import { PortExecution } from "./PortExecution";
 import { SAMLauncherExecution } from "./SAMLauncherExecution";
 import { WarshipExecution } from "./WarshipExecution";
 
+export function constructionMaterialsCost(type: UnitType): number {
+  switch (type) {
+    case UnitType.City:
+      return 20;
+    case UnitType.Factory:
+    case UnitType.Port:
+      return 30;
+    case UnitType.MissileSilo:
+    case UnitType.SAMLauncher:
+      return 40;
+    case UnitType.DefensePost:
+      return 15;
+    default:
+      return 0;
+  }
+}
+
 export class ConstructionExecution implements Execution {
   private structure: Unit | null = null;
   private active: boolean = true;
@@ -62,7 +79,7 @@ export class ConstructionExecution implements Execution {
         this.active = false;
         return;
       }
-      const materialsCost = this.materialsCost(this.constructionType);
+      const materialsCost = constructionMaterialsCost(this.constructionType);
       if (!this.player.removeResource("materials", materialsCost)) {
         console.warn(
           `cannot build ${this.constructionType}: insufficient materials`,
@@ -177,23 +194,6 @@ export class ConstructionExecution implements Execution {
         return true;
       default:
         return false;
-    }
-  }
-
-  private materialsCost(type: UnitType): number {
-    switch (type) {
-      case UnitType.City:
-        return 20;
-      case UnitType.Factory:
-      case UnitType.Port:
-        return 30;
-      case UnitType.MissileSilo:
-      case UnitType.SAMLauncher:
-        return 40;
-      case UnitType.DefensePost:
-        return 15;
-      default:
-        return 0;
     }
   }
 

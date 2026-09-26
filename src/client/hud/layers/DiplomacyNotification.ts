@@ -55,10 +55,7 @@ export class DiplomacyNotification extends LitElement implements Controller {
   private proposalStates = new Map<string, DiplomaticProposal["status"]>();
   private tradeStates = new Map<string, TradeContract["status"]>();
   private incidentStates = new Map<string, string>();
-  private resolutionStates = new Map<
-    string,
-    InternationalResolution["status"]
-  >();
+  private resolutionStates = new Map<string, string>();
   private memoryKeys = new Set<string>();
   private allianceRequests = new Set<string>();
   private allies = new Set<string>();
@@ -115,7 +112,7 @@ export class DiplomacyNotification extends LitElement implements Controller {
     this.resolutionStates = new Map(
       me
         .internationalResolutions()
-        .map((resolution) => [resolution.id, resolution.status]),
+        .map((resolution) => [resolution.id, this.resolutionState(resolution)]),
     );
     this.memoryKeys = new Set(
       me.diplomaticMemories().map((memory) => this.memoryKey(memory)),
@@ -273,9 +270,10 @@ export class DiplomacyNotification extends LitElement implements Controller {
   }
 
   private scanInternationalResolutions(me: PlayerView) {
-    const current = new Map<string, InternationalResolution["status"]>();
+    const current = new Map<string, string>();
     for (const resolution of me.internationalResolutions()) {
-      current.set(resolution.id, resolution.status);
+      const state = this.resolutionState(resolution);
+      current.set(resolution.id, state);
       const previous = this.resolutionStates.get(resolution.id);
       const label = resolutionLabel(resolution);
       if (previous === undefined && resolution.status === "voting") {
@@ -285,7 +283,10 @@ export class DiplomacyNotification extends LitElement implements Controller {
           "🌐",
           "warning",
         );
-      } else if (previous !== undefined && previous !== resolution.status) {
+      } else if (
+        previous !== undefined &&
+        previous.split(":", 1)[0] !== resolution.status
+      ) {
         this.add(
           resolution.status === "passed"
             ? "Résolution adoptée"
@@ -294,9 +295,29 @@ export class DiplomacyNotification extends LitElement implements Controller {
           "🌐",
           resolution.status === "passed" ? "positive" : "negative",
         );
+      } else if (previous !== undefined && previous !== state) {
+        if (resolution.targetResponse === "complied") {
+          this.add(
+            "Résolution respectée",
+            `${this.countryName(resolution.targetID)} accepte la ${label}.`,
+            "🌐",
+            "positive",
+          );
+        } else if (resolution.targetResponse === "defied") {
+          this.add(
+            "Résolution ignorée",
+            `${this.countryName(resolution.targetID)} refuse la ${label}. Un motif de guerre est accordé aux soutiens.`,
+            "⚠",
+            "negative",
+          );
+        }
       }
     }
     this.resolutionStates = current;
+  }
+
+  private resolutionState(resolution: InternationalResolution): string {
+    return `${resolution.status}:${resolution.targetResponse ?? ""}`;
   }
 
   private scanAlliances(me: PlayerView) {
@@ -353,7 +374,7 @@ export class DiplomacyNotification extends LitElement implements Controller {
       if (!this.casusBelli.has(cb.targetID) && cb.type !== "containment")
         this.add(
           "Casus belli obtenu",
-          `${cb.type.replace(/_/g, " ")} contre ${this.countryName(cb.targetID)}.`,
+          `${cb.type === "enforce_resolution" ? "Faire respecter la résolution" : cb.type.replace(/_/g, " ")} contre ${this.countryName(cb.targetID)}.`,
           "⚖",
           "warning",
         );

@@ -1,5 +1,6 @@
 import { simpleHash } from "../Util";
 import {
+  CasusBelliType,
   Game,
   InternationalCharterPrinciple,
   InternationalOrganization,
@@ -12,6 +13,7 @@ import {
 } from "./Game";
 
 const VOTING_DURATION_TICKS = 600;
+const RESPONSE_DURATION_TICKS = 300;
 const MAX_ORGANIZATIONS = 16;
 const MAX_RESOLUTIONS = 256;
 
@@ -227,6 +229,34 @@ export class InternationalOrganizationRegistry {
     return true;
   }
 
+  respond(
+    actor: Player,
+    resolutionID: string,
+    comply: boolean,
+    reason: string,
+  ): boolean {
+    const resolution = this.resolutions.get(resolutionID);
+    if (
+      resolution === undefined ||
+      resolution.status !== "passed" ||
+      resolution.kind === "admit_member" ||
+      resolution.targetID !== actor.id() ||
+      resolution.targetResponse !== "pending" ||
+      !actor.isAlive() ||
+      !isDiplomacyPlusParticipant(actor)
+    )
+      return false;
+    if (comply) {
+      resolution.targetResponse = "complied";
+      resolution.targetResponseAt = this.game.ticks();
+      resolution.targetResponseReason = reason.slice(0, 160);
+      this.revision++;
+      return true;
+    }
+    this.applyDefiance(actor, resolution, reason);
+    return true;
+  }
+
   tick(): void {
     for (const resolution of this.resolutions.values()) {
       if (
@@ -236,6 +266,21 @@ export class InternationalOrganizationRegistry {
         continue;
       const organization = this.organizations.get(resolution.organizationID);
       if (organization !== undefined) this.resolve(resolution, organization);
+    }
+    for (const resolution of this.resolutions.values()) {
+      if (
+        resolution.status !== "passed" ||
+        resolution.targetResponse !== "pending" ||
+        (resolution.targetResponseDeadline ?? Number.POSITIVE_INFINITY) >
+          this.game.ticks() ||
+        !this.game.hasPlayer(resolution.targetID)
+      )
+        continue;
+      this.applyDefiance(
+        this.game.player(resolution.targetID),
+        resolution,
+        "Aucune réponse avant l’échéance",
+      );
     }
   }
 
@@ -285,6 +330,9 @@ export class InternationalOrganizationRegistry {
       }
       return;
     }
+    resolution.targetResponse = "pending";
+    resolution.targetResponseDeadline =
+      this.game.ticks() + RESPONSE_DURATION_TICKS;
     target.changeReputation(-8);
     for (const vote of votesFor) {
       if (!this.game.hasPlayer(vote.voterID)) continue;
@@ -325,6 +373,32 @@ export class InternationalOrganizationRegistry {
         [{ code: "international_condemnation", impact: 35 }],
       );
     }
+  }
+
+  private applyDefiance(
+    target: Player,
+    resolution: InternationalResolution,
+    reason: string,
+  ): void {
+    if (resolution.targetResponse !== "pending") return;
+    resolution.targetResponse = "defied";
+    resolution.targetResponseAt = this.game.ticks();
+    resolution.targetResponseReason = reason.slice(0, 160);
+    target.changeReputation(-15);
+    for (const vote of resolution.votes) {
+      if (vote.choice !== "for" || !this.game.hasPlayer(vote.voterID)) continue;
+      const supporter = this.game.player(vote.voterID);
+      if (!supporter.isAlive() || supporter === target) continue;
+      supporter.rememberDiplomaticEvent(
+        target,
+        "resolution_ignored",
+        -18,
+        -15,
+        { severity: 75 },
+      );
+      supporter.grantCasusBelli(target, CasusBelliType.EnforceResolution, 2400);
+    }
+    this.revision++;
   }
 }
 
@@ -386,5 +460,39 @@ export function evaluateInternationalResolutionVote(
   return {
     choice: "abstain",
     reason: `Intérêts partagés: ${Math.round(score)}`,
+  };
+}
+
+export function evaluateInternationalResolutionResponse(
+  game: Game,
+  target: Player,
+  resolution: InternationalResolution,
+): { comply: boolean; reason: string; score: number } {
+  const supportingCountries = resolution.votes
+    .filter((vote) => vote.choice === "for" && game.hasPlayer(vote.voterID))
+    .map((vote) => game.player(vote.voterID))
+    .filter((player) => player.isAlive() && player !== target);
+  const diplomaticPressure = supportingCountries.reduce(
+    (sum, player) =>
+      sum +
+      Math.max(0, player.troops() / Math.max(1, target.troops())) * 8 +
+      Math.max(0, target.relationScore(player)) * 0.12,
+    0,
+  );
+  const score =
+    target.reputation() * 0.25 +
+    target.governmentProfile().tradeBias * 25 +
+    diplomaticPressure -
+    target.governmentProfile().riskTolerance * 25;
+  if (score >= 22)
+    return {
+      comply: true,
+      reason: `Pression diplomatique acceptée: ${Math.round(score)}`,
+      score,
+    };
+  return {
+    comply: false,
+    reason: `Souveraineté prioritaire: ${Math.round(score)}`,
+    score,
   };
 }

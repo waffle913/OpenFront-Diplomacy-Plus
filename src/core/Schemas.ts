@@ -766,6 +766,8 @@ export const InternationalOrganizationIntentSchema = z.object({
     z.literal("join"),
     z.literal("propose"),
     z.literal("vote"),
+    z.literal("comply"),
+    z.literal("defy"),
   ]),
   name: z.string().min(3).max(64).optional(),
   memberIDs: z.array(MappedID).max(15).optional(),

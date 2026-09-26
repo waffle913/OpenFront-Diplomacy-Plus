@@ -149,6 +149,13 @@ const SAMPLE_INTENTS: StampedIntent[] = [
     reason: "Sécurité collective",
   },
   {
+    type: "international_organization",
+    clientID: P2,
+    action: "defy",
+    resolutionID: "ir:1",
+    reason: "Souveraineté nationale",
+  },
+  {
     type: "diplomatic_incident",
     clientID: P1,
     action: "sanction",

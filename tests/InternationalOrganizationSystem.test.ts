@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InternationalOrganizationExecution } from "../src/core/execution/InternationalOrganizationExecution";
-import { Game, Player, PlayerInfo, PlayerType } from "../src/core/game/Game";
-import { evaluateInternationalResolutionVote } from "../src/core/game/InternationalOrganizationRegistry";
+import {
+  CasusBelliType,
+  Game,
+  Player,
+  PlayerInfo,
+  PlayerType,
+} from "../src/core/game/Game";
+import {
+  evaluateInternationalResolutionResponse,
+  evaluateInternationalResolutionVote,
+} from "../src/core/game/InternationalOrganizationRegistry";
 import { setup } from "./util/Setup";
 
 let game: Game;
@@ -211,6 +220,161 @@ describe("international organization registry", () => {
     ).toContain(":");
   });
 
+  it("records compliance without granting an enforcement war goal", () => {
+    const organization = game.createInternationalOrganization(
+      founder,
+      "Conseil de sécurité",
+      [allyA, allyB],
+      ["oppose_unjustified_wars"],
+    )!;
+    const resolution = game.proposeInternationalResolution(
+      founder,
+      organization.id,
+      "condemn",
+      target,
+    )!;
+    for (const member of [founder, allyA, allyB]) {
+      game.voteInternationalResolution(
+        member,
+        resolution.id,
+        "for",
+        "Responsabilité établie",
+      );
+    }
+
+    expect(resolution.targetResponse).toBe("pending");
+    expect(
+      game.respondInternationalResolution(
+        target,
+        resolution.id,
+        true,
+        "Résolution reconnue",
+      ),
+    ).toBe(true);
+    expect(resolution).toMatchObject({
+      targetResponse: "complied",
+      targetResponseReason: "Résolution reconnue",
+    });
+    expect(founder.casusBelliAgainst(target)).toBeNull();
+    expect(
+      game.respondInternationalResolution(target, resolution.id, false, "Non"),
+    ).toBe(false);
+  });
+
+  it("turns defiance into an explainable enforcement casus belli", () => {
+    const organization = game.createInternationalOrganization(
+      founder,
+      "Assemblée internationale",
+      [allyA, allyB],
+      ["collective_sanctions"],
+    )!;
+    const resolution = game.proposeInternationalResolution(
+      founder,
+      organization.id,
+      "condemn",
+      target,
+    )!;
+    game.voteInternationalResolution(
+      founder,
+      resolution.id,
+      "for",
+      "Droit international",
+    );
+    game.voteInternationalResolution(allyA, resolution.id, "for", "Solidarité");
+    game.voteInternationalResolution(
+      allyB,
+      resolution.id,
+      "against",
+      "Neutralité",
+    );
+
+    expect(
+      game.respondInternationalResolution(
+        target,
+        resolution.id,
+        false,
+        "Souveraineté nationale",
+      ),
+    ).toBe(true);
+    expect(resolution).toMatchObject({
+      targetResponse: "defied",
+      targetResponseReason: "Souveraineté nationale",
+    });
+    expect(founder.casusBelliAgainst(target)?.type).toBe(
+      CasusBelliType.EnforceResolution,
+    );
+    expect(allyA.casusBelliAgainst(target)?.type).toBe(
+      CasusBelliType.EnforceResolution,
+    );
+    expect(allyB.casusBelliAgainst(target)).toBeNull();
+    expect(
+      founder
+        .diplomaticMemories()
+        .some(
+          (memory) =>
+            memory.otherID === target.id() &&
+            memory.type === "resolution_ignored",
+        ),
+    ).toBe(true);
+  });
+
+  it("treats an unanswered passed resolution as defiance at its deadline", () => {
+    const organization = game.createInternationalOrganization(
+      founder,
+      "Conseil des États",
+      [allyA, allyB],
+      ["oppose_unjustified_wars"],
+    )!;
+    const resolution = game.proposeInternationalResolution(
+      founder,
+      organization.id,
+      "condemn",
+      target,
+    )!;
+    for (const member of [founder, allyA, allyB]) {
+      game.voteInternationalResolution(member, resolution.id, "for", "Oui");
+    }
+    const deadline = resolution.targetResponseDeadline!;
+    while (game.ticks() <= deadline) game.executeNextTick();
+
+    expect(resolution).toMatchObject({
+      targetResponse: "defied",
+      targetResponseReason: "Aucune réponse avant l’échéance",
+    });
+    expect(founder.casusBelliAgainst(target)?.type).toBe(
+      CasusBelliType.EnforceResolution,
+    );
+  });
+
+  it("produces deterministic explainable AI responses", () => {
+    const organization = game.createInternationalOrganization(
+      founder,
+      "Forum diplomatique",
+      [allyA, allyB],
+      ["mediate_disputes"],
+    )!;
+    const resolution = game.proposeInternationalResolution(
+      founder,
+      organization.id,
+      "condemn",
+      target,
+    )!;
+    game.voteInternationalResolution(founder, resolution.id, "for", "Oui");
+    game.voteInternationalResolution(allyA, resolution.id, "for", "Oui");
+    game.voteInternationalResolution(allyB, resolution.id, "for", "Oui");
+
+    const first = evaluateInternationalResolutionResponse(
+      game,
+      target,
+      resolution,
+    );
+    expect(first).toEqual(
+      evaluateInternationalResolutionResponse(game, target, resolution),
+    );
+    expect(first.reason).toContain(":");
+    expect(Number.isFinite(first.score)).toBe(true);
+  });
+
   it("creates organizations and records votes while paused without advancing time", () => {
     const tick = game.ticks();
     game.setPaused(true);
@@ -243,6 +407,22 @@ describe("international organization registry", () => {
       choice: "for",
       reason: "Décision immédiate",
     });
+
+    for (const member of [allyA, allyB]) {
+      game.voteInternationalResolution(
+        member,
+        resolution.id,
+        "for",
+        "Décision immédiate",
+      );
+    }
+    game.executePausedActions([
+      new InternationalOrganizationExecution(target, "defy", {
+        resolutionID: resolution.id,
+        reason: "Refus pendant la pause",
+      }),
+    ]);
+    expect(resolution.targetResponse).toBe("defied");
     expect(game.ticks()).toBe(tick);
   });
 });

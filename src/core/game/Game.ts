@@ -630,6 +630,10 @@ export interface InternationalResolution {
   closesAt: Tick;
   status: "voting" | "passed" | "rejected";
   votes: InternationalResolutionVote[];
+  targetResponse?: "pending" | "complied" | "defied";
+  targetResponseAt?: Tick;
+  targetResponseDeadline?: Tick;
+  targetResponseReason?: string;
 }
 
 export type GovernmentStyle =
@@ -742,6 +746,7 @@ export enum CasusBelliType {
   BorderClaim = "border_claim",
   TreatyViolation = "treaty_violation",
   Containment = "containment",
+  EnforceResolution = "enforce_resolution",
 }
 
 export interface CasusBelli {
@@ -1457,6 +1462,12 @@ export interface Game extends GameMap {
     voter: Player,
     resolutionID: string,
     choice: InternationalVoteChoice,
+    reason: string,
+  ): boolean;
+  respondInternationalResolution(
+    actor: Player,
+    resolutionID: string,
+    comply: boolean,
     reason: string,
   ): boolean;
 

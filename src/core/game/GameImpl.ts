@@ -1060,6 +1060,20 @@ export class GameImpl implements Game {
     );
   }
 
+  respondInternationalResolution(
+    actor: Player,
+    resolutionID: string,
+    comply: boolean,
+    reason: string,
+  ): boolean {
+    return this.internationalOrganizationRegistry.respond(
+      actor,
+      resolutionID,
+      comply,
+      reason,
+    );
+  }
+
   inSpawnPhase(): boolean {
     return this.startTick === null;
   }

@@ -27,7 +27,8 @@ Garder dès la conception la possibilité de confier les décisions politiques �
 - Cinq factions politiques légères influencent maintenant les évaluations diplomatiques et évoluent selon la guerre, le commerce, les pertes et l'isolement.
 - Première paix territoriale régionale : `CedeRegion` transfère une région historique et ses structures dans un règlement atomique, avec revalidation au moment de l'application.
 - Contrôles solo existants : pause et vitesses dont ×0,5.
-- Dernière vérification : 122 tests ciblés passent, TypeScript compile et le renderer de production est construit (empreinte cœur `f7f19cebb3c3`).
+- Dernière vérification : 189 tests ciblés et la simulation économique de 20 minutes passent ; TypeScript, oxlint et eslint passent ; le renderer de production est construit (empreinte cœur `d06993d33a0b`). Le benchmark World atteint 125 ticks/s, sans tick au-dessus de 100 ms.
+- Dette de test connue : la suite monolithique du fork conserve 172 échecs antérieurs ou dépendants de l'ordre, surtout des snapshots d'attaque/UI et des scénarios de tribus. Ils ne sont pas masqués par une mise à jour globale des références.
 - Candidate V2 installée dans le renderer Steam le 24 septembre 2026 ; `index.html` et `asset-hashes.json` correspondent exactement au build. La sauvegarde stable V1.16.1 reste disponible pour restauration.
 - Validation en partie : après installation du correctif de blocage des trêves, le joueur a confirmé que cela fonctionne. Les cas limites restent à surveiller pendant les essais suivants.
 
@@ -211,9 +212,7 @@ Critère de sortie : une nation pilotée par LLM a une politique suivie et compr
 
 ### 10. Organisation internationale
 
-**Première boucle joueur implémentée, vérifiée techniquement.** Un registre séparé possède les organisations, leur charte, leurs membres, les résolutions et les votes. Une fondation exige au moins trois pays. Les premières résolutions couvrent la condamnation, la demande de réparations, les sanctions collectives et les candidatures. Le quorum, le résultat et les motivations des votes sont déterministes. Une résolution adoptée modifie la réputation et la mémoire diplomatique ; les sanctions sont appliquées uniquement par les pays ayant voté pour. Une demande de réparations adoptée ouvre une proposition bilatérale ordinaire, qui reste soumise à validation et peut encore être acceptée ou refusée. L'état international est maintenant synchronisé vers le client par instantanés versionnés. Le menu permanent permet de fonder une organisation, demander une adhésion soumise au vote, soumettre une condamnation ou des sanctions et voter. Ces ordres passent par le transport réseau normal et sont applicables pendant la pause sans avancer la date.
-
-Lots suivants : sélection libre des cofondateurs et principes de charte, interface de demande de réparations fondée sur un incident, possibilité d'ignorer une résolution avec coût politique, puis casus belli `Enforce Resolution`.
+**Boucle complète V1 implémentée, vérifiée techniquement.** Un registre séparé possède les organisations, leur charte, leurs membres, les résolutions et les votes. Une fondation exige au moins trois pays ; le joueur choisit librement les cofondateurs, le nom et les principes. Les premières résolutions couvrent la condamnation, la demande de réparations liée à un incident, les sanctions collectives et les candidatures. Le quorum, le résultat et les motivations des votes sont déterministes et visibles. Une résolution adoptée modifie la réputation et la mémoire diplomatique ; les sanctions sont appliquées uniquement par les pays ayant voté pour. Une demande de réparations adoptée ouvre une proposition bilatérale ordinaire, qui reste soumise à validation et peut encore être acceptée ou refusée. La cible peut respecter ou ignorer la résolution, y compris pendant la pause. Un refus explicite ou l'absence de réponse à l'échéance entraîne un coût de réputation, une mémoire durable et un casus belli `Enforce Resolution` pour les pays ayant soutenu la résolution. L'IA évalue sa réponse avec une motivation déterministe. L'état international est synchronisé vers le client par instantanés versionnés et couvert par le hash de simulation.
 
 À tester : coalition minimale, double vote, quorum, abstention, disparition d'un membre, incident devenu caduc et absence de double application.
 
@@ -235,4 +234,4 @@ Demandé après validation du calendrier. Les ordres solo sont transmis pendant 
 
 ## Prochain lot concret
 
-Valider en partie deux scénarios complets : l'incident maritime jusqu'à sa résolution ou son ultimatum, puis une paix comprenant la cession d'une région historique. Tester ensuite la nouvelle boucle internationale : fondation à trois pays, résolution contre un pays sélectionné, votes pendant la pause, reprise du temps et application unique du résultat. Le prochain lot moteur est l'adhésion négociée et le coût politique du refus d'une résolution.
+Valider en partie trois scénarios complets : l'incident maritime jusqu'à sa résolution ou son ultimatum ; une paix comprenant la cession d'une région historique ; puis la boucle internationale, depuis la fondation libre à trois pays jusqu'au respect ou au refus d'une résolution. Vérifier les votes pendant la pause, la réponse de la cible, l'expiration sans réponse, les notifications et l'application unique des conséquences.

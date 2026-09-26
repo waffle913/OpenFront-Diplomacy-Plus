@@ -832,6 +832,10 @@ function internationalResolutionArrayEqual(
       x.createdAt !== y.createdAt ||
       x.closesAt !== y.closesAt ||
       x.status !== y.status ||
+      x.targetResponse !== y.targetResponse ||
+      x.targetResponseAt !== y.targetResponseAt ||
+      x.targetResponseDeadline !== y.targetResponseDeadline ||
+      x.targetResponseReason !== y.targetResponseReason ||
       x.votes.length !== y.votes.length
     )
       return false;

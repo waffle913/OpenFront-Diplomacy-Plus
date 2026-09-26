@@ -191,7 +191,13 @@ export class SendDiplomaticIncidentIntentEvent implements GameEvent {
 
 export class SendInternationalOrganizationIntentEvent implements GameEvent {
   constructor(
-    public readonly action: "create" | "join" | "propose" | "vote",
+    public readonly action:
+      | "create"
+      | "join"
+      | "propose"
+      | "vote"
+      | "comply"
+      | "defy",
     public readonly data: {
       name?: string;
       memberIDs?: PlayerID[];
