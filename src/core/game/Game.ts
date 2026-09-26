@@ -597,7 +597,8 @@ export type InternationalCharterPrinciple =
 export type InternationalResolutionKind =
   | "condemn"
   | "demand_reparations"
-  | "collective_sanctions";
+  | "collective_sanctions"
+  | "admit_member";
 export type InternationalVoteChoice = "for" | "against" | "abstain";
 
 export interface InternationalOrganization {

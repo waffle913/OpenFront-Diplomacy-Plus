@@ -143,6 +143,46 @@ describe("international organization registry", () => {
     });
   });
 
+  it("requires member approval before admitting a new country", () => {
+    const organization = game.createInternationalOrganization(
+      founder,
+      "Union diplomatique",
+      [allyA, allyB],
+      ["mediate_disputes"],
+    )!;
+    expect(organization.memberIDs).not.toContain(target.id());
+    const application = game.proposeInternationalResolution(
+      target,
+      organization.id,
+      "admit_member",
+      target,
+    )!;
+    expect(application).toMatchObject({
+      kind: "admit_member",
+      proposerID: target.id(),
+      targetID: target.id(),
+    });
+    expect(
+      game.proposeInternationalResolution(
+        target,
+        organization.id,
+        "admit_member",
+        target,
+      ),
+    ).toBeNull();
+    for (const member of [founder, allyA, allyB]) {
+      game.voteInternationalResolution(
+        member,
+        application.id,
+        "for",
+        "Candidature acceptable",
+      );
+    }
+    expect(application.status).toBe("passed");
+    expect(organization.memberIDs).toContain(target.id());
+    expect(target.reputation()).toBe(100);
+  });
+
   it("produces deterministic explainable AI votes", () => {
     const organization = game.createInternationalOrganization(
       founder,

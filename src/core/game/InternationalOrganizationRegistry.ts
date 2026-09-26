@@ -125,15 +125,29 @@ export class InternationalOrganizationRegistry {
       this.revision++;
     }
     const organization = this.organizations.get(organizationID);
+    const isMembershipApplication = kind === "admit_member";
     if (
       organization === undefined ||
-      !organization.memberIDs.includes(proposer.id()) ||
-      proposer === target ||
       !target.isAlive() ||
-      !isDiplomacyPlusParticipant(target)
+      !isDiplomacyPlusParticipant(target) ||
+      (isMembershipApplication
+        ? proposer !== target || organization.memberIDs.includes(target.id())
+        : !organization.memberIDs.includes(proposer.id()) ||
+          proposer === target)
     ) {
       return null;
     }
+    if (
+      isMembershipApplication &&
+      [...this.resolutions.values()].some(
+        (resolution) =>
+          resolution.organizationID === organizationID &&
+          resolution.kind === "admit_member" &&
+          resolution.targetID === target.id() &&
+          resolution.status === "voting",
+      )
+    )
+      return null;
     if (options.incidentID !== undefined) {
       const incident = this.game.diplomaticIncident(options.incidentID);
       if (
@@ -261,6 +275,16 @@ export class InternationalOrganizationRegistry {
     )
       return;
     const target = this.game.player(resolution.targetID);
+    if (resolution.kind === "admit_member") {
+      if (!organization.memberIDs.includes(target.id())) {
+        organization.memberIDs = [
+          ...organization.memberIDs,
+          target.id(),
+        ].sort();
+        this.revision++;
+      }
+      return;
+    }
     target.changeReputation(-8);
     for (const vote of votesFor) {
       if (!this.game.hasPlayer(vote.voterID)) continue;
@@ -310,6 +334,28 @@ export function evaluateInternationalResolutionVote(
   resolution: InternationalResolution,
 ): { choice: InternationalVoteChoice; reason: string } {
   const target = game.player(resolution.targetID);
+  if (resolution.kind === "admit_member") {
+    let membershipScore =
+      voter.relationScore(target) * 0.45 +
+      voter.trust(target) * 0.25 -
+      target.threat() * 0.2;
+    if (voter.isAlliedWith(target)) membershipScore += 30;
+    if (target.reputation() >= 70) membershipScore += 12;
+    if (membershipScore >= 20)
+      return {
+        choice: "for",
+        reason: `Partenaire compatible: ${Math.round(membershipScore)}`,
+      };
+    if (membershipScore <= -10)
+      return {
+        choice: "against",
+        reason: `Candidature risquée: ${Math.round(membershipScore)}`,
+      };
+    return {
+      choice: "abstain",
+      reason: `Candidature incertaine: ${Math.round(membershipScore)}`,
+    };
+  }
   let score = voter.relationScore(target) * -0.4 + target.threat() * 0.35;
   if (resolution.incidentID !== undefined) {
     const incident = game.diplomaticIncident(resolution.incidentID);

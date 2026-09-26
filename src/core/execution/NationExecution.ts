@@ -326,6 +326,12 @@ export class NationExecution implements Execution {
       .find(
         (candidate) =>
           candidate.status === "voting" &&
+          this.mg
+            .internationalOrganizations()
+            .find(
+              (organization) => organization.id === candidate.organizationID,
+            )
+            ?.memberIDs.includes(this.player!.id()) === true &&
           !candidate.votes.some((vote) => vote.voterID === this.player!.id()),
       );
     if (resolution === undefined) return;

@@ -475,7 +475,7 @@ export class DiplomacyPanel extends LitElement implements Controller {
                         organizationID: organization.id,
                       })}
                   >
-                    Rejoindre
+                    Demander l’adhésion
                   </button>`
                 : nothing}
             </div>
@@ -514,7 +514,11 @@ export class DiplomacyPanel extends LitElement implements Controller {
             );
             return html`<div class="eu4-card mb-2">
               <div class="flex justify-between gap-3">
-                <b class="text-sm">${resolution.kind}</b>
+                <b class="text-sm"
+                  >${resolution.kind === "admit_member"
+                    ? `Candidature de ${this.playerName(resolution.targetID)}`
+                    : resolution.kind}</b
+                >
                 <span class="text-xs uppercase text-amber-300"
                   >${resolution.status}</span
                 >

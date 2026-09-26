@@ -135,6 +135,14 @@ const SAMPLE_INTENTS: StampedIntent[] = [
   {
     type: "international_organization",
     clientID: P2,
+    action: "propose",
+    organizationID: "io:1",
+    resolutionKind: "admit_member",
+    targetID: P2,
+  },
+  {
+    type: "international_organization",
+    clientID: P2,
     action: "vote",
     resolutionID: "ir:1",
     vote: "for",

@@ -787,6 +787,7 @@ export const InternationalOrganizationIntentSchema = z.object({
       z.literal("condemn"),
       z.literal("demand_reparations"),
       z.literal("collective_sanctions"),
+      z.literal("admit_member"),
     ])
     .optional(),
   targetID: MappedID.optional(),

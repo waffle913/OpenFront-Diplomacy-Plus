@@ -63,9 +63,11 @@ export class InternationalOrganizationExecution implements Execution {
         );
       } else if (this.action === "join") {
         if (this.data.organizationID)
-          this.game.joinInternationalOrganization(
+          this.game.proposeInternationalResolution(
             this.actor,
             this.data.organizationID,
+            "admit_member",
+            this.actor,
           );
       } else if (this.action === "propose") {
         if (
